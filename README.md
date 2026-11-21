@@ -19,7 +19,7 @@ A ClickUp integration for [Orca](https://orca.dev): your ClickUp tasks in Orca's
 ```sh
 orca plugin install gthjnk/orca-clickup-tasks --json
 # or pin a version tag
-orca plugin install gthjnk/orca-clickup-tasks@v0.1.3 --json
+orca plugin install gthjnk/orca-clickup-tasks@v0.1.4 --json
 ```
 
 The plugin runs code, so the first install exits with `approval_required` and prints an `--approve` fingerprint. Review the [permissions](#permissions) below, then re-run the same command with `--approve <fingerprint>`.
@@ -30,9 +30,10 @@ Requires Orca `>=1.4.259`.
 
 ## Connect
 
-1. In ClickUp: avatar → **Settings** → **Apps** → **API Token**, then copy your Personal API token.
-2. Open the **ClickUp Tasks** panel in Orca, paste the token and press **Connect**.
-3. If you belong to more than one ClickUp Workspace, pick one.
+1. Open the **ClickUp Tasks** panel in Orca and press **Open ClickUp settings ↗** (or go to ClickUp → avatar → **Settings** → **Apps**).
+2. Under **API Token**, press **Generate** (first time only) or **Copy**. The token starts with `pk_`.
+3. Paste it into the panel and press **Connect**.
+4. If you belong to more than one ClickUp Workspace, pick one.
 
 ## Permissions
 

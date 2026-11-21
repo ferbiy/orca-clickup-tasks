@@ -26,7 +26,7 @@ export async function call<K extends Name>(name: K, ...input: Input<K> extends u
 
 export const MESSAGES: Record<ErrorCode, string> = {
   not_connected: 'Connect ClickUp to continue.',
-  auth_invalid: 'ClickUp refused the token. Paste a new one.',
+  auth_invalid: 'ClickUp did not accept this token. Copy it again from ClickUp → Settings → Apps → API Token (it starts with pk_).',
   rate_limited: 'ClickUp is rate limiting requests. Try again in a minute.',
   clickup_unavailable: 'Could not reach ClickUp. Check your connection and refresh.',
   not_found: 'That item no longer exists or you lost access to it.',
@@ -291,9 +291,9 @@ export async function copyTaskUrl(url: string): Promise<void> {
   if (done) set(s.notice, { tone: 'success', text: 'Task link copied.' })
 }
 
-/** Only from a press. Opens the token help page; any other url is ignored. */
+/** Only from a press. Opens ClickUp's token page or the token help page; any other url is ignored. */
 export async function openExternalLink(url: string): Promise<void> {
-  if (!url.startsWith('https://developer.clickup.com/')) return
+  if (!url.startsWith('https://developer.clickup.com/') && url !== 'https://app.clickup.com/settings/apps') return
   await shell.openExternal(url)
 }
 

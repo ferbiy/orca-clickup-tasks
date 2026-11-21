@@ -71,7 +71,27 @@ describe('panel views', () => {
     const view = await mount(panel, { host })
     await view.type({ label: 'Personal API token' } as never, 'bad')
     await view.press({ text: 'Connect' } as never)
-    assert.ok(JSON.stringify(view.tree()).includes('ClickUp refused the token'))
+    const text = JSON.stringify(view.tree())
+    assert.ok(text.includes('Could not connect'))
+    assert.ok(text.includes('ClickUp did not accept this token'))
+    // 'bad' does not start with pk_, so the inline hint shows too.
+    assert.ok(text.includes('ClickUp personal tokens start with pk_'))
+  })
+
+  test('connect: numbered steps, and the settings link opens ClickUp only from a press', async () => {
+    const host = mockHost({ requests: requests({ 'auth.state': ok(disconnected) }) })
+    const view = await mount(panel, { host })
+    const text = JSON.stringify(view.tree())
+    for (const s of ['Open the Apps page of your ClickUp settings', 'Under API Token', 'Paste it below and press Connect']) {
+      assert.ok(text.includes(s), `missing ${s}`)
+    }
+    assert.ok(!text.includes('Read-only until you press Start'))
+    assert.ok(!text.includes('ClickUp personal tokens start with pk_'))
+    await view.press({ text: 'Open ClickUp settings ↗' } as never)
+    const opened = host.calls.filter((c) => c.method === 'shell.openExternal')
+    assert.equal(opened.length, 1)
+    assert.ok(JSON.stringify(opened[0]).includes('https://app.clickup.com/settings/apps'))
+    assert.deepEqual([...view.errors], [])
   })
 
   test('list: groups, filters by search', async () => {
