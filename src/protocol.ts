@@ -89,6 +89,8 @@ declare module 'orca' {
     /** One page of a List's tasks, always from ClickUp. */
     'browse.tasks': { input: { listId: string; page: number; includeClosed: boolean }; output: Result<ListTasksPage> }
 
+    /** Copies a ClickUp task link (https://app.clickup.com/…) to the OS clipboard. */
+    'clipboard.copyTaskUrl': { input: { url: string }; output: Result<{ ok: true }> }
     /** Drops cached tasks, statuses and the Browse tree (not the token or Workspace choice), then posts 'tasks.changed'. */
     'cache.clear': { output: Result<{ ok: true }> }
   }

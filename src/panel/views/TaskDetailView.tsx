@@ -45,6 +45,17 @@ export function TaskDetailView() {
         </Button>
         <Row gap="sm" align="center">
           {task ? <Link onPress={() => void api.openInClickUp(task.url)}>Open in ClickUp</Link> : null}
+          {task ? (
+            <IconButton
+              icon="copy"
+              label="Copy task link"
+              tooltip="Copy task link"
+              variant="ghost"
+              size="sm"
+              disabled={read(s.busy) !== null}
+              onPress={() => void api.copyTaskUrl(task.url)}
+            />
+          ) : null}
           {detail ? (
             <IconButton
               icon="refresh"

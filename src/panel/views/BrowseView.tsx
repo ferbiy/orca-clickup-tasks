@@ -43,6 +43,8 @@ function BrowseTree() {
         label="Spaces, Folders and Lists"
         items={s.treeItems(tree)}
         expanded={expanded}
+        // Nothing stays selected, so a second press on the same Space or Folder toggles it again.
+        selected=""
         onToggle={({ key, expanded: open }) => api.toggleTreeItem(key, open)}
         onSelect={({ key }) => api.selectTreeItem(key)}
       />

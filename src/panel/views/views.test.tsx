@@ -183,6 +183,35 @@ describe('panel views', () => {
     assert.deepEqual([...view.errors], [])
   })
 
+  test('tree: pressing a Space or Folder row opens and closes it, like its arrow', async () => {
+    const host = mockHost({ requests: requests({ 'browse.spaces': ok(checkSpaces), 'browse.children': ok(checkChildren) }) })
+    const view = await mount(panel, { host })
+    await view.select({ label: 'Task source' } as never, 'browse')
+    const tree = { label: 'Spaces, Folders and Lists' } as never
+    await view.selectItem(tree, 'space:sp1')
+    assert.equal(callsOf(host, 'browse.children').length, 1)
+    assert.deepEqual(view.persisted.plugin.browseExpanded, ['space:sp1'])
+    await view.selectItem(tree, 'folder:f1')
+    assert.deepEqual(view.persisted.plugin.browseExpanded, ['space:sp1', 'folder:f1'])
+    await view.selectItem(tree, 'folder:f1')
+    await view.selectItem(tree, 'space:sp1')
+    assert.deepEqual(view.persisted.plugin.browseExpanded, [])
+    assert.equal(callsOf(host, 'browse.tasks').length, 0)
+    assert.deepEqual([...view.errors], [])
+  })
+
+  test('detail: the copy button sends the task link to the worker and confirms', async () => {
+    const host = mockHost({ requests: requests({ 'clipboard.copyTaskUrl': ok({ ok: true }) }) })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    await view.press({ label: 'Copy task link' } as never)
+    const calls = callsOf(host, 'clipboard.copyTaskUrl')
+    assert.equal(calls.length, 1)
+    assert.ok(JSON.stringify(calls[0]).includes(detail.url))
+    assert.ok(JSON.stringify(view.tree()).includes('Task link copied.'))
+    assert.deepEqual([...view.errors], [])
+  })
+
   test('browse list: opens from the tree and back returns to the tree', async () => {
     const page = (n: number, ids: string[], lastPage: boolean) =>
       ok({ listId: 'L-web', page: n, lastPage, tasks: checkTasks.filter((t) => ids.includes(t.id)) })

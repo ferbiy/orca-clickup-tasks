@@ -12,7 +12,7 @@ import type {
   Priority,
   TaskPatch
 } from '../shared/model'
-import type { PanelPoster } from './ports'
+import type { Clipboard, PanelPoster } from './ports'
 import type { AuthService } from './services/auth-service'
 import type { EditService } from './services/edit-service'
 import type { TaskService } from './services/task-service'
@@ -21,6 +21,7 @@ export interface Services {
   auth: AuthService
   tasks: TaskService
   edit: EditService
+  clipboard: Clipboard
   /** Current time, for the 'tasks.changed' that follows cache.clear. */
   clock: () => number
   post: PanelPoster
@@ -354,6 +355,17 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
     r('comments.delete', () => s.edit.deleteComment(requireString(input?.commentId, 'commentId')))
   )
 
+  handle('clipboard.copyTaskUrl', (input) =>
+    r('clipboard.copyTaskUrl', async () => {
+      const url = requireString(input?.url, 'url')
+      // Only task links: the panel never sends anything else, and the worker copies nothing else.
+      if (!/^https:\/\/app\.clickup\.com\/\S+$/.test(url) || url.length > 2048) {
+        throw new PluginError('invalid_input', 'Not a ClickUp task link.')
+      }
+      if (!(await s.clipboard.write(url))) throw new PluginError('orca_failed', 'Could not reach the system clipboard.')
+      return { ok: true as const }
+    })
+  )
   handle('cache.clear', () =>
     r('cache.clear', async () => {
       await s.tasks.clearCaches()

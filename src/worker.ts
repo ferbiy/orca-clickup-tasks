@@ -2,6 +2,7 @@
 // Everything below this file depends on ports, so it is the one place to swap an implementation.
 import type { OrcaWorkerApi } from 'orca/worker'
 import { clickUpTrackerFactory } from './clickup/clickup-tracker'
+import { systemClipboard } from './worker/clipboard'
 import { registerHandlers } from './worker/handlers'
 import { keyValueStore, panelPoster, secretStore } from './worker/orca-adapters'
 import { AuthService } from './worker/services/auth-service'
@@ -30,5 +31,5 @@ export default function activate(orca: OrcaWorkerApi): void {
   const tasks = new TaskService({ auth, cache, post, clock })
   const edit = new EditService({ auth, tasks, cache, post, clock })
 
-  registerHandlers(orca, { auth, tasks, edit, clock, post, log: (m) => orca.log(m) })
+  registerHandlers(orca, { auth, tasks, edit, clipboard: systemClipboard(), clock, post, log: (m) => orca.log(m) })
 }

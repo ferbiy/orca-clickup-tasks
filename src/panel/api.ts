@@ -285,6 +285,12 @@ export async function openInClickUp(url: string): Promise<void> {
   await shell.openExternal(url)
 }
 
+/** Copies the open task's link; the notice says whether it worked. */
+export async function copyTaskUrl(url: string): Promise<void> {
+  const done = await run('Copying…', () => call('clipboard.copyTaskUrl', { url }))
+  if (done) set(s.notice, { tone: 'success', text: 'Task link copied.' })
+}
+
 /** Only from a press. Opens the token help page; any other url is ignored. */
 export async function openExternalLink(url: string): Promise<void> {
   if (!url.startsWith('https://developer.clickup.com/')) return
@@ -377,9 +383,14 @@ export function toggleTreeItem(key: string, expanded: boolean): void {
   if (expanded && key.startsWith('space:')) void loadChildren(key.slice(6))
 }
 
+/** A press on a row: a List opens; a Space or Folder opens or closes, like its arrow. */
 export function selectTreeItem(key: string): void {
   const list = s.findList(read(s.browseTree), key)
-  if (list) void openList(list)
+  if (list) {
+    void openList(list)
+    return
+  }
+  if (key.startsWith('space:') || key.startsWith('folder:')) toggleTreeItem(key, !read(s.browseExpanded).includes(key))
 }
 
 export async function openList(list: { id: string; name: string; breadcrumb: string }): Promise<void> {

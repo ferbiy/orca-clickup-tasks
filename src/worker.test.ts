@@ -42,6 +42,16 @@ test('Browse and comment requests validate their input before needing a connecti
   await worker.deactivate()
 })
 
+test('clipboard.copyTaskUrl copies only ClickUp task links', async () => {
+  const host = mockHost({ capabilities: CAPABILITIES })
+  const worker = await mountWorker(main, { host })
+  for (const url of ['', 'https://evil.test/x', 'http://app.clickup.com/t/1', 'https://app.clickup.com/t/1 rm -rf']) {
+    const refused = await worker.request('clipboard.copyTaskUrl', { url })
+    assert.equal(refused.ok === false && refused.error.code, 'invalid_input')
+  }
+  await worker.deactivate()
+})
+
 test('cache.clear answers ok without a connection', async () => {
   const host = mockHost({ capabilities: CAPABILITIES, results: { 'secrets.protection': { status: 'os-keyring' } } })
   const worker = await mountWorker(main, { host })

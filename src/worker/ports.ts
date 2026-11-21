@@ -26,3 +26,8 @@ export type PanelPoster = <E extends keyof import('orca').PluginPanelEvents>(
 
 /** Injected clock, so time-based logic is testable. */
 export type Clock = () => number
+
+/** The OS clipboard. `write` answers false when no clipboard command worked. */
+export interface Clipboard {
+  write(text: string): Promise<boolean>
+}
