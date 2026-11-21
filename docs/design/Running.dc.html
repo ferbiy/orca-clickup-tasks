@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent working</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0b0c}
+a{color:#93c5fd}a:hover{color:#bfdbfe}
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:500;line-height:1;white-space:nowrap}
+.b-accent{background:#172554;color:#93c5fd}
+.b-warning{background:#422006;color:#fcd34d}
+.btn{height:32px;padding:0 12px;border-radius:6px;font:inherit;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box}
+.btn-solid{background:#fafafa;color:#09090b;border:1px solid #fafafa}
+.btn-outline{background:transparent;color:#fafafa;border:1px solid #3f3f46}
+.mono{font-family:'Geist Mono',ui-monospace,monospace}
+.step{display:flex;gap:10px;align-items:flex-start}
+.dot{flex:none;width:18px;height:18px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
+</style>
+</helmet>
+<div style="width: 360px; height: 780px; box-sizing: border-box; background: #0b0b0c; color: #fafafa; font-family: Geist, Inter, system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; border-left: 1px solid #27272a">
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px">
+    <a href="Main.dc.html" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #a1a1aa; text-decoration: none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>My Tasks
+    </a>
+    <a href="#" style="font-size: 12px; text-decoration: none">Open in ClickUp</a>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 14px 16px; border-bottom: 1px solid #27272a">
+    <h1 style="margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35">Migrate billing webhooks to v2</h1>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+      <span class="badge b-accent">In progress</span>
+      <span class="badge b-warning">High</span>
+      <span style="font-size: 12px; color: #a1a1aa">API › Backlog</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 16px; padding: 16px">
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid #27272a; border-radius: 10px; background: #111113">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"></path></svg>
+          Claude is working
+        </span>
+        <span style="font-size: 12px; color: #a1a1aa">4 min</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 12px; color: #a1a1aa">Workspace</span>
+        <span class="mono" style="font-size: 12px; color: #e4e4e7">acme/billing-service · CU-86c1x2a-migrate-billing-webhooks-v2</span>
+      </div>
+      <div style="display: flex; gap: 8px">
+        <button class="btn btn-solid" style="flex: 1 1 0">Open workspace</button>
+        <button class="btn btn-outline" style="flex: 1 1 0">Copy branch</button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div class="step">
+        <span class="dot" style="background: #052e16; color: #86efac"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span>Worktree created</span><span style="font-size: 12px; color: #a1a1aa">from main</span></div>
+      </div>
+      <div class="step">
+        <span class="dot" style="background: #052e16; color: #86efac"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span>Task moved to In progress</span><span style="font-size: 12px; color: #a1a1aa">in ClickUp</span></div>
+      </div>
+      <div class="step">
+        <span class="dot" style="background: #172554; color: #93c5fd"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle></svg></span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span>Claude working on the task</span><span style="font-size: 12px; color: #a1a1aa">You get a notification when it finishes or needs input</span></div>
+      </div>
+      <div class="step">
+        <span class="dot" style="border: 1px solid #3f3f46"></span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="color: #a1a1aa">Review and update ClickUp</span></div>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: #422006; color: #fde68a">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <span style="font-weight: 600">When blocked</span>
+        <span style="font-size: 12px; line-height: 1.5; color: #fcd34d">This card turns amber with “Claude needs input” and an Open workspace button.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":360,"height":780}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

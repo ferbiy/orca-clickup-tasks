@@ -371,7 +371,7 @@ function mapAttachment(dto: AttachmentDto): Attachment | null {
   }
 }
 
-/** At most this many custom fields reach the model; values are cut at 300 chars (keeps the detail light). */
+/** At most this many custom fields reach the model; values are cut at 300 chars (prompt budget). */
 const MAX_CUSTOM_FIELDS = 30
 const MAX_CUSTOM_VALUE = 300
 
@@ -383,7 +383,7 @@ function optionName(field: CustomFieldDto, key: string): string | null {
 
 /**
  * A custom field rendered as one "name: value" line, or null when the field is hidden, empty, or a
- * type this plugin does not map.
+ * type the snapshot does not map (docs/TASK-CONTEXT.md §5).
  */
 function mapCustomField(field: CustomFieldDto): { name: string; value: string } | null {
   if (field.hidden) return null

@@ -4,7 +4,7 @@ import type {
   ChecklistAction, ClickUpUser, CommentCursor, CommentInput, CommentPage, Person, SpaceChildren, SpaceRef, StatusOption, TaskComment, TaskDetail, TaskPatch, TaskSummary, Team
 } from '../../shared/model'
 import type { TaskTracker } from '../../tracker/tracker'
-import type { PanelPoster, SecretStore } from '../ports'
+import type { OrcaAgent, OrcaGateway, OrcaProject, OrcaWorkspace, PanelPoster, SecretStore } from '../ports'
 
 export function taskDetail(overrides: Partial<TaskDetail> = {}): TaskDetail {
   return {
@@ -104,6 +104,76 @@ export class FakeTracker implements TaskTracker {
   }
   async listComments(taskId: string, before?: CommentCursor) { this.record('listComments', [taskId, before]); return this.comments }
   async listReplies(commentId: string) { this.record('listReplies', [commentId]); return this.replies }
+}
+
+export class FakeGateway implements OrcaGateway {
+  projects: OrcaProject[] = [
+    { id: 'p-web', name: 'web-app', kind: 'git', hostId: 'local', hidden: false },
+    { id: 'p-api', name: 'billing-service', kind: 'git', hostId: 'local', hidden: false },
+    { id: 'p-notes', name: 'notes', kind: 'folder', hostId: 'local', hidden: false },
+    { id: 'p-ssh', name: 'remote', kind: 'git', hostId: 'ssh:box', hidden: false }
+  ]
+  workspaces: OrcaWorkspace[] = []
+  created: Parameters<OrcaGateway['createWorkspace']>[0][] = []
+  opened: string[] = []
+  notifications: { title: string; body?: string }[] = []
+  logs: string[] = []
+  createError: Error | null = null
+  nextWorkspaceId = 'identity:wt2:local:new'
+
+  async listProjects() { return this.projects }
+  async listWorkspaces() { return this.workspaces }
+  async createWorkspace(params: Parameters<OrcaGateway['createWorkspace']>[0]): Promise<{ workspaceId: string; terminalId?: string }> {
+    if (this.createError) throw this.createError
+    this.created.push(params)
+    this.workspaces.push({ id: this.nextWorkspaceId, projectId: params.projectId, name: params.name, branch: params.name })
+    return { workspaceId: this.nextWorkspaceId, terminalId: 'term_1' }
+  }
+  async openWorkspace(workspaceId: string) { this.opened.push(workspaceId) }
+
+  /** agents.list answers, by workspace id; a missing key answers []. */
+  agents: Record<string, OrcaAgent[]> = {}
+  /** terminal.list answers, by workspace id. */
+  terminals: Record<string, { id: string; title?: string }[]> = {}
+  /** terminal.read answers, by terminal id; a missing key rejects (terminal gone). */
+  output: Record<string, string[]> = {}
+  /** Set to make terminal.read reject as Orca does without `terminal:read`. */
+  readError: Error | null = null
+  launched: { workspaceId: string; agent: string }[] = []
+  /** terminal.sendText calls, in order. */
+  sent: { terminalId: string; text: string }[] = []
+  /** Rejections for the next sendText calls, consumed in order. */
+  sendErrors: Error[] = []
+  sendAccepted = true
+  /** Agents that appear in agents.list once launched (the terminal id it runs in). */
+  agentAppearsOnLaunch = true
+  launchError: Error | null = null
+  nextTerminalId = 'term_2'
+
+  async launchAgent(params: { workspaceId: string; agent: string }) {
+    if (this.launchError) throw this.launchError
+    this.launched.push(params)
+    if (this.agentAppearsOnLaunch) {
+      this.agents[params.workspaceId] = [{ terminalId: this.nextTerminalId, agent: params.agent, state: 'done' }]
+    }
+    return { terminalId: this.nextTerminalId }
+  }
+  async sendText(terminalId: string, text: string) {
+    const error = this.sendErrors.shift()
+    if (error) throw error
+    this.sent.push({ terminalId, text })
+    return this.sendAccepted
+  }
+  async listAgents(workspaceId: string) { return this.agents[workspaceId] ?? [] }
+  async listTerminals(workspaceId: string) { return this.terminals[workspaceId] ?? [] }
+  async readTerminal(terminalId: string, maxLines: number) {
+    if (this.readError) throw this.readError
+    const lines = this.output[terminalId]
+    if (!lines) throw new Error(`terminal ${terminalId} not found`)
+    return lines.slice(-maxLines)
+  }
+  async notify(params: { title: string; body?: string }) { this.notifications.push(params) }
+  log(message: string) { this.logs.push(message) }
 }
 
 export interface Posted { event: keyof PluginPanelEvents; payload: unknown }

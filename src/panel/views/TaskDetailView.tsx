@@ -1,6 +1,6 @@
 // Task detail composer: header, properties, description, checklists, subtasks, attachments,
-// comments.
-import { Button, Callout, IconButton, Link, Row, Skeleton, Stack, read } from 'orca'
+// comments, then the start form or the run card.
+import { Button, Callout, Collapsible, IconButton, Link, Row, Skeleton, Stack, read } from 'orca'
 import * as api from '../api'
 import * as s from '../state'
 import { Comments } from './detail/Comments'
@@ -11,6 +11,9 @@ import { Checklists } from './detail/Checklists'
 import { Subtasks } from './detail/Subtasks'
 import { Attachments } from './detail/Attachments'
 import type { TaskDetail } from '../../shared/model'
+import { RunCard } from './RunCard'
+import { StartForm } from './StartForm'
+import { UpdateTaskForm } from './UpdateTaskForm'
 
 function Body({ task, detail }: { task: TaskDetail; detail: s.DetailState }) {
   return (
@@ -24,6 +27,23 @@ function Body({ task, detail }: { task: TaskDetail; detail: s.DetailState }) {
     </Stack>
   )
 }
+
+
+function RunSection() {
+  const detail = read(s.detail)
+  const link = detail ? read(s.linkByTask).get(detail.taskId) : undefined
+  if (!link) return <StartForm />
+  return (
+    <Stack gap="md">
+      <RunCard link={link} />
+      {link.run.state === 'done' ? <UpdateTaskForm /> : null}
+      <Collapsible title="Start another worktree">
+        <StartForm />
+      </Collapsible>
+    </Stack>
+  )
+}
+
 
 export function TaskDetailView() {
   const detail = read(s.detail)
@@ -76,6 +96,7 @@ export function TaskDetailView() {
         <>
           <Header task={task} />
           <Body task={task} detail={detail!} />
+          <RunSection />
         </>
       ) : (
         <Skeleton lines={6} />

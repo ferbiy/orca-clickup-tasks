@@ -11,10 +11,13 @@ import type {
   Person,
   SpaceChildren,
   SpaceRef,
+  StartOptions,
   StatusOption,
   TaskComment,
   CommentCursor,
+  TaskContextMode,
   TaskDetail,
+  TaskLink,
   TaskListResult,
   TaskSummary
 } from '../shared/model'
@@ -36,8 +39,9 @@ export const tasksError = atom<PluginErrorShape | null>('tasksError', null)
 export const refreshing = atom<boolean>('refreshing', false)
 /** Epoch ms before which Refresh stays disabled (after a rate limit). */
 export const refreshBlockedUntil = atom<number>('refreshBlockedUntil', 0)
+export const links = atom<TaskLink[]>('links', [])
 export const notice = atom<Notice | null>('notice', null)
-/** Label of the action in progress ("Connecting…", "Saving…"); disables the buttons that run one. */
+/** Label of the action in progress ("Connecting…", "Starting…"); disables the buttons that run one. */
 export const busy = atom<string | null>('busy', null)
 
 /** My tasks filters, remembered across panel runs. Always read through `normalizeFilter` (older state lacks fields). */
@@ -53,10 +57,38 @@ export const tokenDraft = atom<string>('tokenDraft', '')
 export interface DetailState {
   taskId: string
   task: TaskDetail | null
+  options: StartOptions | null
   statuses: StatusOption[] | null
   error: PluginErrorShape | null
 }
 export const detail = atom<DetailState | null>('detail', null)
+
+export interface StartForm {
+  projectId: string
+  agent: string
+  baseBranch: string
+  moveToInProgress: boolean
+  taskContext: TaskContextMode
+}
+export const startForm = atom<StartForm>('startForm', {
+  projectId: '',
+  agent: 'claude',
+  baseBranch: '',
+  moveToInProgress: true,
+  taskContext: 'auto'
+})
+
+export interface UpdateForm {
+  status: string
+  comment: string
+}
+export const updateForm = atom<UpdateForm>('updateForm', { status: '', comment: '' })
+
+/** The agent the run card's "Retry here" starts; '' = the card's own pick (see RunCard). */
+export const retryAgent = atom<string>('retryAgent', '')
+
+/** The task prompt the run card shows for pasting by hand, once loaded. */
+export const runPrompt = atom<{ workspaceId: string; text: string | null; error: string | null } | null>('runPrompt', null)
 
 
 // ── Browse ─────────────────────────────────────────────────────────────────
@@ -290,3 +322,9 @@ export const listOptions = derived(() => {
   return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
 })
 
+/** Newest link per task id. */
+export const linkByTask = derived(() => {
+  const map = new Map<string, TaskLink>()
+  for (const l of read(links)) if (!map.has(l.taskId)) map.set(l.taskId, l)
+  return map
+})

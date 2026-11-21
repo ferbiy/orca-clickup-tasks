@@ -11,7 +11,9 @@ import './protocol'
 export function setup(ctx: PanelContext): void {
   ctx.subscriptions.push(
     plugin.on('auth.changed', (state) => set(s.auth, state)),
-    plugin.on('tasks.changed', () => void api.loadTasks(false))
+    plugin.on('tasks.changed', () => void api.loadTasks(false)),
+    plugin.on('link.changed', (link) => api.upsertLink(link)),
+    plugin.on('link.removed', ({ workspaceId }) => api.removeLink(workspaceId))
   )
   void boot()
 }
@@ -19,6 +21,8 @@ export function setup(ctx: PanelContext): void {
 /** Loads auth, then whatever screen the panel was left on. Run again from the Retry button. */
 async function boot(): Promise<void> {
   set(s.notice, null)
+  // links.list first (fast), then the check that catches runs Orca's events left behind.
+  void api.loadLinks().then(() => api.checkRuns())
   await api.loadAuth()
   const state = read(s.auth)
   if (!state?.connected || !state.teamId) return
@@ -26,6 +30,7 @@ async function boot(): Promise<void> {
   const screen = read(s.screen)
   if (screen.name === 'detail') void api.openTask(screen.taskId, screen.backTo)
   else if (read(s.activeTab) === 'browse') void api.ensureBrowse()
+  else if (read(s.activeTab) === 'settings') api.ensureSettings()
 }
 
 export default function Panel() {

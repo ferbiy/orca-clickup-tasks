@@ -9,18 +9,29 @@ import type {
   CommentInput,
   DateValue,
   Person,
+  PluginSettings,
   Priority,
+  SettingsState,
+  TaskContextMode,
   TaskPatch
 } from '../shared/model'
 import type { Clipboard, PanelPoster } from './ports'
 import type { AuthService } from './services/auth-service'
 import type { EditService } from './services/edit-service'
+import { AGENTS, type StartService } from './services/start-service'
+import type { RunWatcher } from './services/run-watcher'
 import type { TaskService } from './services/task-service'
+import type { LinkStore } from './stores/link-store'
+import type { PrefsStore } from './stores/prefs-store'
 
 export interface Services {
   auth: AuthService
   tasks: TaskService
   edit: EditService
+  start: StartService
+  watcher: RunWatcher
+  links: LinkStore
+  prefs: PrefsStore
   clipboard: Clipboard
   /** Current time, for the 'tasks.changed' that follows cache.clear. */
   clock: () => number
@@ -72,6 +83,50 @@ function requireString(value: unknown, field: string): string {
     throw new PluginError('invalid_input', `Missing ${field}.`)
   }
   return value
+}
+
+const MAX_BASE_BRANCH = 200
+
+const TASK_CONTEXT_MODES: readonly string[] = ['auto', 'link-and-snapshot', 'link-only', 'snapshot-only']
+
+/** A task-context mode from the panel, or undefined; anything else is refused. */
+function optionalTaskContext(value: unknown): TaskContextMode | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || !TASK_CONTEXT_MODES.includes(value)) {
+    throw new PluginError('invalid_input', 'Bad task context mode.')
+  }
+  return value as TaskContextMode
+}
+
+/** Picks the known, correctly typed fields out of a settings.update input. Any bad field refuses the whole patch. */
+export function parseSettingsPatch(input: unknown): Partial<PluginSettings> {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new PluginError('invalid_input', 'Settings must be an object.')
+  }
+  const v = input as Record<string, unknown>
+  const patch: Partial<PluginSettings> = {}
+  if (v.defaultAgent !== undefined) {
+    if (typeof v.defaultAgent !== 'string' || !AGENTS.some((a) => a.id === v.defaultAgent)) {
+      throw new PluginError('invalid_input', 'Unknown default agent.')
+    }
+    patch.defaultAgent = v.defaultAgent
+  }
+  if (v.defaultBaseBranch !== undefined) {
+    if (typeof v.defaultBaseBranch !== 'string') throw new PluginError('invalid_input', 'Base branch must be text.')
+    const branch = v.defaultBaseBranch.trim()
+    if (branch.length > MAX_BASE_BRANCH) {
+      throw new PluginError('invalid_input', `Base branch is longer than ${MAX_BASE_BRANCH} characters.`)
+    }
+    patch.defaultBaseBranch = branch
+  }
+  for (const key of ['moveToInProgress', 'notifyOnDone', 'notifyOnNeedsInput'] as const) {
+    if (v[key] === undefined) continue
+    if (typeof v[key] !== 'boolean') throw new PluginError('invalid_input', `${key} must be true or false.`)
+    patch[key] = v[key]
+  }
+  const taskContext = optionalTaskContext(v.taskContext)
+  if (taskContext !== undefined) patch.taskContext = taskContext
+  return patch
 }
 
 // ── Phase 8a: task editing input validation ───────────────────────────────
@@ -355,6 +410,43 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
     r('comments.delete', () => s.edit.deleteComment(requireString(input?.commentId, 'commentId')))
   )
 
+  handle('start.options', (input) =>
+    r('start.options', () => s.start.options(requireString(input?.taskId, 'taskId')))
+  )
+  handle('start.run', (input) =>
+    r('start.run', () =>
+      s.start.run({
+        taskId: requireString(input?.taskId, 'taskId'),
+        projectId: requireString(input?.projectId, 'projectId'),
+        agent: requireString(input?.agent, 'agent'),
+        ...(typeof input?.baseBranch === 'string' ? { baseBranch: input.baseBranch } : {}),
+        moveToInProgress: input?.moveToInProgress === true,
+        ...(optionalTaskContext(input?.taskContext) ? { taskContext: optionalTaskContext(input?.taskContext) } : {})
+      })
+    )
+  )
+
+  const settingsState = async (): Promise<SettingsState> => {
+    const learned = await s.prefs.agentClickUpAll()
+    return {
+      settings: await s.prefs.settings(),
+      agents: AGENTS.map((a) => ({ ...a })),
+      clickUpReaders: AGENTS.filter((a) => learned[a.id] === 'tool').map((a) => a.label)
+    }
+  }
+  handle('settings.get', () => r('settings.get', settingsState))
+  handle('settings.forgetAgentContext', () =>
+    r('settings.forgetAgentContext', async () => {
+      await s.prefs.forgetAgentClickUp()
+      return settingsState()
+    })
+  )
+  handle('settings.update', (input) =>
+    r('settings.update', async () => {
+      await s.prefs.updateSettings(parseSettingsPatch(input))
+      return settingsState()
+    })
+  )
   handle('clipboard.copyTaskUrl', (input) =>
     r('clipboard.copyTaskUrl', async () => {
       const url = requireString(input?.url, 'url')
@@ -370,6 +462,45 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
     r('cache.clear', async () => {
       await s.tasks.clearCaches()
       s.post('tasks.changed', { fetchedAt: s.clock() })
+      return { ok: true as const }
+    })
+  )
+
+  handle('links.list', () => r('links.list', () => s.links.list()))
+  handle('links.open', (input) =>
+    r('links.open', async () => {
+      await s.start.open(requireString(input?.workspaceId, 'workspaceId'))
+      return { ok: true as const }
+    })
+  )
+
+  handle('runs.check', (input) =>
+    r('runs.check', async () => {
+      if (input?.workspaceId === undefined) return s.watcher.checkAll()
+      await s.watcher.check(requireString(input.workspaceId, 'workspaceId'))
+      return s.links.list()
+    })
+  )
+  handle('runs.retry', (input) =>
+    r('runs.retry', () =>
+      s.start.retry({
+        workspaceId: requireString(input?.workspaceId, 'workspaceId'),
+        agent: requireString(input?.agent, 'agent'),
+        ...(optionalTaskContext(input?.taskContext) ? { taskContext: optionalTaskContext(input?.taskContext) } : {})
+      })
+    )
+  )
+  handle('runs.sendPrompt', (input) =>
+    r('runs.sendPrompt', () =>
+      s.start.sendPrompt(requireString(input?.workspaceId, 'workspaceId'), optionalTaskContext(input?.taskContext))
+    )
+  )
+  handle('runs.prompt', (input) =>
+    r('runs.prompt', async () => ({ text: await s.start.prompt(requireString(input?.workspaceId, 'workspaceId')) }))
+  )
+  handle('runs.forget', (input) =>
+    r('runs.forget', async () => {
+      await s.watcher.forget(requireString(input?.workspaceId, 'workspaceId'))
       return { ok: true as const }
     })
   )

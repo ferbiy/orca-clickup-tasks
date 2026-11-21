@@ -2,7 +2,7 @@
 import { assert, describe, mockHost, mount, test } from 'orca/testing'
 import * as panel from '../../panel'
 import { checkChildren, checkComments, checkSpaces, checkTasks } from '../check-fixtures'
-import type { AuthState, StatusOption, TaskDetail } from '../../shared/model'
+import type { AuthState, StartOptions, StatusOption, TaskDetail, TaskLink } from '../../shared/model'
 
 const connected: AuthState = {
   connected: true,
@@ -28,18 +28,32 @@ const detail: TaskDetail = {
   attachments: [],
   customFields: []
 }
+const options: StartOptions = {
+  projects: [{ id: 'p1', name: 'billing', hostId: 'local' }, { id: 'p2', name: 'web', hostId: 'local' }],
+  suggestedProjectId: 'p1',
+  agents: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }],
+  workspaceName: 'CU-86c1x2a-Migrate-billing-webhooks-to-v2',
+  inProgressStatus: 'in progress',
+  defaults: { agent: 'claude', moveToInProgress: true, baseBranch: '', taskContext: 'auto' }
+}
 const statuses: StatusOption[] = [
   { name: 'to do', type: 'open', order: 0 },
   { name: 'in progress', type: 'custom', order: 1 },
   { name: 'review', type: 'custom', order: 2 }
 ]
+const link = (state: TaskLink['run']['state']): TaskLink => ({
+  taskId: detail.id, taskName: detail.name, taskUrl: detail.url, listId: 'L-api', workspaceId: 'w1', projectId: 'p1',
+  branch: 'CU-86c1x2a-Migrate', agent: 'claude', createdAt: 1, run: { state, since: Date.now(), sawWorking: true }
+})
 const ok = <T,>(value: T) => ({ ok: true, value })
 
 function requests(extra: Record<string, unknown> = {}) {
   return {
     'auth.state': ok(connected),
     'tasks.list': ok({ tasks: checkTasks, fetchedAt: Date.now(), stale: false }),
+    'links.list': ok([]),
     'tasks.get': ok(detail),
+    'start.options': ok(options),
     'tasks.statuses': ok(statuses),
     ...extra
   } as never
@@ -151,6 +165,90 @@ describe('panel views', () => {
     const after = JSON.stringify(view.tree())
     assert.ok(after.includes('Add CSV export'))
     assert.ok(!after.includes('Dark mode'))
+  })
+
+  test('detail: opens with the start form; Start calls start.run', async () => {
+    const host = mockHost({ requests: requests({ 'start.run': ok(link('starting')) }) })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    assert.ok(JSON.stringify(view.tree()).includes('Start in worktree'))
+    await view.select({ label: 'Agent' } as never, 'codex')
+    await view.press({ text: 'Start in worktree' } as never)
+    const run = callsOf(host, 'start.run')
+    assert.equal(run.length, 1)
+    const params = JSON.stringify(run[0])
+    assert.ok(params.includes('"projectId":"p1"') && params.includes('"agent":"codex"') && params.includes('"moveToInProgress":true'))
+    assert.deepEqual([...view.errors], [])
+    assert.deepEqual([...view.warnings], [])
+  })
+
+  test('detail: seeds the start form from options.defaults', async () => {
+    const seeded = { ...options, defaults: { agent: 'codex', moveToInProgress: false, baseBranch: 'develop', taskContext: 'auto' as const } }
+    const host = mockHost({ requests: requests({ 'start.options': ok(seeded), 'start.run': ok(link('starting')) }) })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    await view.press({ text: 'Start in worktree' } as never)
+    const params = JSON.stringify(callsOf(host, 'start.run')[0])
+    assert.ok(params.includes('"agent":"codex"') && params.includes('"moveToInProgress":false') && params.includes('"baseBranch":"develop"'))
+  })
+
+  test('done link shows RunCard and UpdateTaskForm; Update calls tasks.update', async () => {
+    const host = mockHost({ requests: requests({ 'tasks.update': ok({ ok: true }) }) })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    await view.post('link.changed', link('done'))
+    const text = JSON.stringify(view.tree())
+    assert.ok(text.includes('Claude finished'))
+    assert.ok(text.includes('Update ClickUp'))
+    await view.select({ label: 'Move to status' } as never, 'review')
+    await view.press({ text: 'Update task' } as never)
+    const update = callsOf(host, 'tasks.update')
+    assert.equal(update.length, 1)
+    assert.ok(JSON.stringify(update[0]).includes('"status":"review"'))
+    assert.deepEqual([...view.errors], [])
+    assert.deepEqual([...view.warnings], [])
+  })
+
+  test('detail: the Task context select sends taskContext and the Auto hint names the reader', async () => {
+    const opts: StartOptions = {
+      ...options,
+      agents: [
+        { id: 'claude', label: 'Claude', clickUp: 'tool' },
+        { id: 'codex', label: 'Codex' }
+      ]
+    }
+    const host = mockHost({ requests: requests({ 'start.options': ok(opts), 'start.run': ok(link('starting')) }) })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    const text = JSON.stringify(view.tree())
+    assert.ok(text.includes('Task context'))
+    assert.ok(text.includes('Claude (reads ClickUp)'), text)
+    assert.ok(text.includes('Auto: link only (Claude read ClickUp itself last time)'))
+    await view.select({ label: 'Task context' } as never, 'snapshot-only')
+    assert.ok(!JSON.stringify(view.tree()).includes('Auto: link only'))
+    await view.press({ text: 'Start in worktree' } as never)
+    assert.ok(JSON.stringify(callsOf(host, 'start.run')[0]).includes('"taskContext":"snapshot-only"'))
+    assert.deepEqual([...view.errors], [])
+    assert.deepEqual([...view.warnings], [])
+  })
+
+  test('run card: link-only + report none warns and "Send the task details" sends snapshot-only', async () => {
+    const warned: TaskLink = { ...link('working'), taskContext: 'link-only', contextReport: 'none' }
+    const sent: TaskLink = { ...link('working'), taskContext: 'snapshot-only' }
+    const host = mockHost({ requests: requests({ 'runs.sendPrompt': ok(sent) }) })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    await view.post('link.changed', warned)
+    let text = JSON.stringify(view.tree())
+    assert.ok(text.includes('could not read the task from ClickUp'))
+    await view.press({ text: 'Send the task details' } as never)
+    const calls = callsOf(host, 'runs.sendPrompt')
+    assert.equal(calls.length, 1)
+    assert.ok(JSON.stringify(calls[0]).includes('"taskContext":"snapshot-only"'))
+    text = JSON.stringify(view.tree())
+    assert.ok(!text.includes('could not read the task from ClickUp'))
+    assert.deepEqual([...view.errors], [])
+    assert.deepEqual([...view.warnings], [])
   })
 
   test('tabs: switching to Browse loads the Spaces once and remembers the tab', async () => {
@@ -421,6 +519,64 @@ describe('panel views', () => {
     assert.ok(JSON.stringify(view.tree()).includes('My tasks'))
   })
 
+  test('a failed run shows the error, retries with another agent in place, or stops tracking', async () => {
+    const failed: TaskLink = {
+      ...link('failed'), agent: 'claude', terminalId: 'term_1',
+      run: { state: 'failed', since: Date.now(), sawWorking: false, problem: { kind: 'agent_missing', lines: ['zsh: command not found: claude'] } }
+    }
+    const missingOptions = { ...options, agents: [{ id: 'claude', label: 'Claude', missing: true }, { id: 'codex', label: 'Codex' }] }
+    const restarted: TaskLink = { ...failed, agent: 'codex', terminalId: 'term_2', run: { state: 'starting', since: Date.now(), sawWorking: false } }
+    const host = mockHost({
+      requests: requests({
+        'links.list': ok([failed]),
+        'runs.check': ok([failed]),
+        'start.options': ok(missingOptions),
+        'runs.retry': ok(restarted),
+        'runs.forget': ok({ ok: true })
+      })
+    })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    let text = JSON.stringify(view.tree())
+    assert.ok(text.includes('Claude could not start'))
+    assert.ok(text.includes('zsh: command not found: claude'))
+    assert.ok(text.includes('Claude (not found last time)'))
+    await view.press({ text: 'Retry in this worktree' } as never)
+    const retry = callsOf(host, 'runs.retry')
+    assert.equal(retry.length, 1)
+    assert.ok(JSON.stringify(retry[0]).includes('"agent":"codex"') && JSON.stringify(retry[0]).includes('"workspaceId":"w1"'))
+    text = JSON.stringify(view.tree())
+    assert.ok(text.includes('Starting Codex'))
+    assert.ok(text.includes('Agent not starting?'))
+
+    await view.post('link.changed', failed)
+    await view.press({ text: 'Stop tracking' } as never)
+    assert.equal(callsOf(host, 'runs.forget').length, 1)
+    assert.ok(JSON.stringify(view.tree()).includes('Start in worktree'))
+    assert.deepEqual([...view.errors], [])
+    assert.deepEqual([...view.warnings], [])
+  })
+
+  test('an idle agent shows its task prompt on demand', async () => {
+    const idle: TaskLink = {
+      ...link('stalled'), terminalId: 'term_1',
+      run: { state: 'stalled', since: Date.now(), sawWorking: false, problem: { kind: 'agent_idle', lines: ['> '] } }
+    }
+    const host = mockHost({
+      requests: requests({ 'links.list': ok([idle]), 'runs.check': ok([idle]), 'runs.prompt': ok({ text: 'TASK PROMPT BODY' }),
+        'runs.sendPrompt': ok({ ...idle, run: { state: 'starting', since: Date.now(), sawWorking: false } }) })
+    })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
+    assert.ok(JSON.stringify(view.tree()).includes('Claude is waiting for the task'))
+    await view.toggle({ type: 'Collapsible', label: 'Task prompt' } as never)
+    assert.equal(callsOf(host, 'runs.prompt').length, 1)
+    assert.ok(JSON.stringify(view.tree()).includes('TASK PROMPT BODY'))
+    await view.press({ text: 'Send the task prompt' } as never)
+    assert.equal(callsOf(host, 'runs.sendPrompt').length, 1)
+    assert.ok(JSON.stringify(view.tree()).includes('Starting Claude'))
+    assert.deepEqual([...view.errors], [])
+  })
 })
 
 describe('task editing (8a)', () => {

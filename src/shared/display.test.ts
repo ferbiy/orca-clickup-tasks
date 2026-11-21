@@ -1,5 +1,6 @@
 import { assert, describe, test } from 'orca/testing'
 import {
+  doneCommentTemplate,
   dueLabel,
   formatBytes,
   moreWordsLabel,
@@ -65,6 +66,15 @@ describe('dueLabel', () => {
       label: 'Due tomorrow',
       tone: 'danger'
     })
+  })
+})
+
+describe('doneCommentTemplate', () => {
+  test('exact text', () => {
+    assert.equal(
+      doneCommentTemplate('Claude', 'CU-abc-fix'),
+      'Done by Claude in Orca.\nBranch: CU-abc-fix\nPR: [PASTE PR LINK]\nSummary: '
+    )
   })
 })
 

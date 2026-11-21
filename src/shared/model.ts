@@ -78,7 +78,7 @@ export interface Attachment {
   createdAt: number | null
 }
 
-/** Full task, fetched on demand for the detail view. */
+/** Full task, fetched on demand for the detail view and the agent prompt. */
 export interface TaskDetail extends TaskSummary {
   /** Markdown description; may be empty. Untrusted text. */
   description: string
@@ -94,7 +94,7 @@ export interface TaskDetail extends TaskSummary {
   /** Milliseconds tracked so far, or null when none. */
   timeSpentMs: number | null
   attachments: Attachment[]
-  /** Simple custom fields with a value, shown in the detail view. Untrusted text. */
+  /** Simple custom fields with a value, for the agent prompt's snapshot. Untrusted text. */
   customFields: { name: string; value: string }[]
 }
 
@@ -243,6 +243,152 @@ export interface TaskListResult {
   fetchedAt: number
   /** True when the cache is older than the refresh window; the panel may ask for a refresh. */
   stale: boolean
+}
+
+/** A git project in Orca that a task can start in. */
+export interface ProjectOption {
+  id: string
+  name: string
+  hostId: string
+}
+
+export interface StartOptions {
+  projects: ProjectOption[]
+  /** Project remembered for this task's List, when still present. */
+  suggestedProjectId: string | null
+  agents: AgentChoice[]
+  /** Workspace (and branch) name the worker will create, e.g. "CU-86c1x2a-migrate-billing-webhooks". */
+  workspaceName: string
+  /** Status the task moves to on start when the person keeps the box checked; null if none fits. */
+  inProgressStatus: string | null
+  /** Start form seeds, from the person's settings (Phase 6). */
+  defaults: StartDefaults
+}
+
+/** What the Start form starts with. `moveToInProgress` is already false when `inProgressStatus` is null. */
+export interface StartDefaults {
+  agent: string
+  moveToInProgress: boolean
+  /** '' means the project's default base. */
+  baseBranch: string
+  /** Task context mode the Select starts with (the setting). */
+  taskContext: TaskContextMode
+}
+
+/**
+ * How much of the task the agent is told to fetch itself (docs/TASK-CONTEXT.md).
+ * 'auto' resolves per agent: a learned ClickUp reader gets the link only, any other gets
+ * link + snapshot. Resolved modes (never 'auto') live on the link.
+ */
+export type TaskContextMode = 'auto' | 'link-and-snapshot' | 'link-only' | 'snapshot-only'
+export type ResolvedTaskContext = Exclude<TaskContextMode, 'auto'>
+
+/** What an agent reported about its ClickUp access (the CU-CTX line it printed). */
+export type AgentClickUpAccess = 'tool' | 'none'
+
+/**
+ * The plugin's settings (Phase 6). Stored by the worker (PrefsStore); the panel edits them in the
+ * Settings tab through 'settings.get' / 'settings.update'.
+ */
+export interface PluginSettings {
+  /** Agent the Start form preselects. One of the worker's AGENTS ids. Default 'claude'. */
+  defaultAgent: string
+  /** Whether "Move to in progress" starts ticked. Default true. */
+  moveToInProgress: boolean
+  /** Base branch the Start form starts with; '' = the project's default. Trimmed, max 200 chars. Default ''. */
+  defaultBaseBranch: string
+  /** Show an OS notification when an agent finishes a task's run. Default true. */
+  notifyOnDone: boolean
+  /** Show an OS notification when an agent run becomes blocked or waiting for input. Default false. */
+  notifyOnNeedsInput: boolean
+  /** How much of the task the agent gets in its prompt. Default 'auto'. */
+  taskContext: TaskContextMode
+}
+
+/** 'settings.get' / 'settings.update' answer: the settings plus the agent choices for the Select. */
+export interface SettingsState {
+  settings: PluginSettings
+  agents: { id: string; label: string }[]
+  /** Labels of the agents that reported they can read ClickUp themselves (learned). */
+  clickUpReaders: string[]
+}
+
+export interface StartRequest {
+  taskId: string
+  projectId: string
+  agent: string
+  /** Empty or missing: the project's default base. */
+  baseBranch?: string
+  moveToInProgress: boolean
+  /** Overrides the `taskContext` setting for this start. */
+  taskContext?: TaskContextMode
+}
+
+/** An agent the Start form offers. `missing`: its CLI was not found the last time it was started. */
+export interface AgentChoice {
+  id: string
+  label: string
+  missing?: boolean
+  /** What the agent reported about its own ClickUp access, when it has run before. */
+  clickUp?: AgentClickUpAccess
+}
+
+/**
+ * Agent run state as the plugin tracks it for one linked workspace. 'starting' → … come from Orca's
+ * agent events; 'stalled' and 'failed' come from the plugin's own checks (RunWatcher.check):
+ * - 'stalled': no agent seen for a while. A guess, not proof (setup scripts can be slow).
+ * - 'failed': the agent's terminal shows it could not start (e.g. `command not found`).
+ * Any later agent event moves the run on again.
+ */
+export type RunState = 'starting' | 'working' | 'blocked' | 'waiting' | 'done' | 'stalled' | 'failed'
+
+/** Why a run is 'stalled' or 'failed', with what the plugin saw. */
+export interface RunProblem {
+  /**
+   * agent_missing: the shell could not find the agent's CLI. no_agent: no agent is running in the
+   * workspace. no_terminal: the agent's terminal is gone. agent_idle: the agent is open but never
+   * started on the task (its prompt may not have arrived: Orca #41107).
+   */
+  kind: 'agent_missing' | 'no_agent' | 'no_terminal' | 'agent_idle'
+  /** The last lines of the agent's terminal (untrusted text), or [] when they could not be read. */
+  lines: string[]
+}
+
+/** The link between a ClickUp task and the Orca workspace started for it. */
+export interface TaskLink {
+  taskId: string
+  taskName: string
+  taskUrl: string
+  listId: string
+  /** The id workspace.create returned (identity:wt2:…); equals agent events' `workspaceListId`. */
+  workspaceId: string
+  projectId: string
+  branch: string
+  agent: string
+  createdAt: number
+  /** The terminal Orca started the agent in, when Orca said; null for links made before it was kept. */
+  terminalId?: string | null
+  /** The resolved task-context mode this run's prompt was built with. */
+  taskContext?: ResolvedTaskContext
+  /** What the agent reported about its ClickUp access on this run (docs/TASK-CONTEXT.md §3). */
+  contextReport?: AgentClickUpAccess
+  run: {
+    state: RunState
+    /** Epoch ms the current state began. */
+    since: number
+    /** True once a 'working' state was seen; a 'done' before that is Orca's launch blip. */
+    sawWorking: boolean
+    /** Set only while state is 'stalled' or 'failed'. */
+    problem?: RunProblem
+  }
+}
+
+/** 'runs.retry': start an agent again in the run's existing worktree. */
+export interface RetryRequest {
+  workspaceId: string
+  agent: string
+  /** Overrides the `taskContext` setting for this retry's prompt. */
+  taskContext?: TaskContextMode
 }
 
 export interface UpdateTaskRequest {

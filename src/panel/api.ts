@@ -3,9 +3,12 @@
 import { plugin, read, set, shell, update, type PluginRequests } from 'orca'
 import { fromErrorShape, type ErrorCode, messageOf, PluginError, toErrorShape } from '../shared/errors'
 import type { Result } from '../shared/errors'
-import type { TaskSummary } from '../shared/model'
+import { doneCommentTemplate } from '../shared/display'
+import type { TaskContextMode, TaskLink, TaskSummary } from '../shared/model'
+import { pickReviewStatus } from '../shared/status-pick'
 import { EMPTY_FILTER, normalizeFilter, normalizePresets, type TaskFilter, type TaskPreset } from '../shared/task-filter'
 import * as s from './state'
+import { loadSettings, settingsSaving, settingsState } from './settings'
 
 type Name = keyof PluginRequests
 type Value<K extends Name> = PluginRequests[K] extends { output: Result<infer T> } ? T : never
@@ -16,7 +19,7 @@ export async function call<K extends Name>(name: K, ...input: Input<K> extends u
   const request = plugin.request as unknown as (n: string, i?: unknown, o?: { timeoutMs?: number }) => Promise<Result<Value<K>>>
   let answer: Result<Value<K>>
   try {
-    answer = await request(name, input[0], { timeoutMs: 30_000 })
+    answer = await request(name, input[0], { timeoutMs: name === 'start.run' ? 120_000 : 30_000 })
   } catch (error) {
     throw new PluginError('orca_failed', messageOf(error))
   }
@@ -117,6 +120,14 @@ export async function loadTasks(refresh: boolean): Promise<void> {
   }
 }
 
+export async function loadLinks(): Promise<void> {
+  try {
+    set(s.links, await call('links.list'))
+  } catch {
+    // Links are a hint on the list; the next link.changed event fills them in.
+  }
+}
+
 function withPreset(f: TaskFilter, id: TaskPreset): TaskFilter {
   const on = normalizePresets(f.presets)
   return { ...f, presets: normalizePresets(on.includes(id) ? on.filter((p) => p !== id) : [...on, id]) }
@@ -140,12 +151,12 @@ export function toggleFiltersOpen(which: 'tasks' | 'browse'): void {
   update(s.filtersOpen, (o) => ({ ...o, [which]: !o[which] }))
 }
 
-// ── Detail ────────────────────────────────────────────────
+// ── Detail, start, update ────────────────────────────────────────────────
 
 export async function openTask(taskId: string, backTo: string | null = null): Promise<void> {
   set(s.screen, { name: 'detail', taskId, backTo })
   set(s.notice, null)
-  set(s.detail, { taskId, task: null, statuses: null, error: null })
+  set(s.detail, { taskId, task: null, options: null, statuses: null, error: null })
   set(s.replies, {})
   set(s.descriptionExpanded, false)
   if (read(s.editing)?.taskId !== taskId) set(s.editing, null)
@@ -153,10 +164,24 @@ export async function openTask(taskId: string, backTo: string | null = null): Pr
   set(s.spaceTags, null)
   void loadComments(taskId, false)
   try {
-    const task = await call('tasks.get', { taskId })
+    const [task, options] = await Promise.all([call('tasks.get', { taskId }), call('start.options', { taskId })])
     const statuses = await call('tasks.statuses', { listId: task.list.id })
     if (!isOpen(taskId)) return
-    set(s.detail, { taskId, task, statuses, error: null })
+    set(s.detail, { taskId, task, options, statuses, error: null })
+    set(s.startForm, {
+      projectId: options.suggestedProjectId ?? options.projects[0]?.id ?? '',
+      agent: options.defaults.agent,
+      baseBranch: options.defaults.baseBranch,
+      moveToInProgress: options.defaults.moveToInProgress,
+      taskContext: options.defaults.taskContext
+    })
+    const link = read(s.linkByTask).get(taskId)
+    set(s.retryAgent, '')
+    if (link && link.run.state !== 'done') void checkRuns(link.workspaceId)
+    set(s.updateForm, {
+      status: pickReviewStatus(statuses, task.status.name) ?? task.status.name,
+      comment: link ? doneCommentTemplate(agentLabelOf(link, options.agents), link.branch) : ''
+    })
   } catch (error) {
     update(s.detail, (d) => (d && d.taskId === taskId ? { ...d, error: toErrorShape(error) } : d))
   }
@@ -237,6 +262,8 @@ export async function reloadTask(): Promise<void> {
     return
   }
   const taskId = d.taskId
+  const openLink = read(s.linkByTask).get(taskId)
+  if (openLink && openLink.run.state !== 'done') void checkRuns(openLink.workspaceId)
   const openThreads = Object.entries(read(s.replies)).filter(([, r]) => r.open).map(([id]) => id)
   set(s.detailRefreshing, true)
   set(s.notice, null)
@@ -269,6 +296,121 @@ export function back(): void {
   set(s.comments, null)
   set(s.replies, {})
   set(s.notice, null)
+}
+
+export function patchStartForm(patch: Partial<s.StartForm>): void {
+  update(s.startForm, (f) => ({ ...f, ...patch }))
+}
+
+export function patchRetryAgent(agent: string): void {
+  set(s.retryAgent, agent)
+}
+
+export function patchUpdateForm(patch: Partial<s.UpdateForm>): void {
+  update(s.updateForm, (f) => ({ ...f, ...patch }))
+}
+
+export async function startTask(): Promise<void> {
+  const d = read(s.detail)
+  const form = read(s.startForm)
+  if (!d?.task || !form.projectId) return
+  const link = await run('Starting…', () =>
+    call('start.run', {
+      taskId: d.task!.id,
+      projectId: form.projectId,
+      agent: form.agent,
+      ...(form.baseBranch.trim() ? { baseBranch: form.baseBranch.trim() } : {}),
+      moveToInProgress: form.moveToInProgress,
+      taskContext: form.taskContext
+    })
+  )
+  if (!link) return
+  upsertLink(link)
+  set(s.notice, { tone: 'success', text: `Workspace ${link.branch} created. The agent is starting.` })
+}
+
+export async function openWorkspace(workspaceId: string): Promise<void> {
+  await run('Opening…', () => call('links.open', { workspaceId }))
+}
+
+/**
+ * Asks the worker to look at runs Orca's events may have left behind (one, or all not done).
+ * Quiet: the run card shows what it finds; a failure leaves the links as they were.
+ */
+export async function checkRuns(workspaceId?: string): Promise<void> {
+  try {
+    set(s.links, await call('runs.check', workspaceId ? { workspaceId } : {}))
+  } catch {
+    // Best effort, like loadLinks.
+  }
+}
+
+/** "Check again" on the run card: the same check, with the busy label so the press shows. */
+export async function checkRunNow(workspaceId: string): Promise<void> {
+  await run('Checking…', () => checkRuns(workspaceId))
+}
+
+/** Starts `agent` again in the run's worktree (same branch), with the task prompt. */
+export async function retryRun(workspaceId: string, agent: string): Promise<void> {
+  const link = await run('Starting…', () => call('runs.retry', { workspaceId, agent }))
+  if (!link) return
+  upsertLink(link)
+  set(s.retryAgent, '')
+  set(s.notice, { tone: 'success', text: `Starting ${agentLabelOf(link, read(s.detail)?.options?.agents ?? [])} in ${link.branch}.` })
+}
+
+/**
+ * Types the task prompt into the run's agent ("Send the task prompt" / "Send the task details",
+ * the latter with `taskContext: 'snapshot-only'`). Orca switches to the workspace to do it.
+ */
+export async function sendRunPrompt(workspaceId: string, taskContext?: TaskContextMode): Promise<void> {
+  const link = await run('Sending the prompt…', () =>
+    call('runs.sendPrompt', { workspaceId, ...(taskContext ? { taskContext } : {}) })
+  )
+  if (!link) return
+  upsertLink(link)
+  set(s.notice, { tone: 'success', text: 'Prompt sent. Orca switched to the workspace to type it.' })
+}
+
+/** Loads the task prompt for pasting by hand (the run card's "Task prompt" section). */
+export async function loadRunPrompt(workspaceId: string): Promise<void> {
+  if (read(s.runPrompt)?.workspaceId === workspaceId && read(s.runPrompt)?.text) return
+  set(s.runPrompt, { workspaceId, text: null, error: null })
+  try {
+    const { text } = await call('runs.prompt', { workspaceId })
+    set(s.runPrompt, { workspaceId, text, error: null })
+  } catch (error) {
+    set(s.runPrompt, { workspaceId, text: null, error: messageFor(error) })
+  }
+}
+
+/** Stops tracking a run; the worktree stays. The Start form shows again. */
+export async function forgetRun(workspaceId: string): Promise<void> {
+  const done = await run('Removing…', () => call('runs.forget', { workspaceId }))
+  if (!done) return
+  removeLink(workspaceId)
+  set(s.notice, { tone: 'neutral', text: 'Stopped tracking that run. Its worktree is still in Orca.' })
+}
+
+export async function submitUpdate(): Promise<void> {
+  const d = read(s.detail)
+  const form = read(s.updateForm)
+  if (!d?.task) return
+  const statusChanged = form.status && form.status !== d.task.status.name
+  if (!statusChanged && !form.comment.trim()) return
+  const done = await run('Updating…', () =>
+    call('tasks.update', {
+      taskId: d.task!.id,
+      ...(statusChanged ? { status: form.status } : {}),
+      comment: form.comment
+    })
+  )
+  if (!done) return
+  set(s.notice, { tone: 'success', text: 'Task updated in ClickUp.' })
+  const screen = read(s.screen)
+  await openTask(d.task.id, screen.name === 'detail' ? screen.backTo : null)
+  const fresh = read(s.detail)?.task
+  if (fresh && fresh.id === d.task.id) patchRows(fresh)
 }
 
 /** Keeps the loaded My tasks and Browse rows in step with a task just fetched. */
@@ -324,6 +466,12 @@ export function resetBrowse(): void {
 export function setTab(tab: s.Tab): void {
   set(s.activeTab, tab)
   if (tab === 'browse') void ensureBrowse()
+  if (tab === 'settings') ensureSettings()
+}
+
+/** Loads the settings the first time the Settings tab shows (a failed load is retried from its Retry button). */
+export function ensureSettings(): void {
+  if (!read(settingsState) && !read(settingsSaving)) void loadSettings()
 }
 
 /** Loads what the Browse tab shows when it has not loaded yet. */
@@ -455,9 +603,32 @@ export async function loadBrowsePage(reset: boolean): Promise<void> {
 
 /** The header Refresh: the active tab's data. */
 export async function refreshActive(): Promise<void> {
+  void checkRuns()
   if (read(s.activeTab) === 'tasks') return loadTasks(true)
   if (read(s.browseSelection).list) return loadBrowsePage(true)
   update(s.browseTree, (b) => ({ ...b, children: {} }))
   await loadSpaces(true)
 }
 
+// ── Event handlers (wired in panel.tsx setup) ─────────────────────────────
+
+export function upsertLink(link: TaskLink): void {
+  update(s.links, (all) => [link, ...all.filter((l) => l.workspaceId !== link.workspaceId)])
+  // The agent can finish while its task is open: prefill the Done form once, never over edits.
+  const d = read(s.detail)
+  if (link.run.state === 'done' && d?.task?.id === link.taskId && d.options && !read(s.updateForm).comment) {
+    const status = d.statuses ? pickReviewStatus(d.statuses, d.task.status.name) : null
+    update(s.updateForm, (f) => ({
+      status: f.status || status || d.task!.status.name,
+      comment: doneCommentTemplate(agentLabelOf(link, d.options!.agents), link.branch)
+    }))
+  }
+}
+
+export function removeLink(workspaceId: string): void {
+  update(s.links, (all) => all.filter((l) => l.workspaceId !== workspaceId))
+}
+
+function agentLabelOf(link: TaskLink, agents: readonly { id: string; label: string }[]): string {
+  return agents.find((a) => a.id === link.agent)?.label ?? link.agent
+}

@@ -18,7 +18,7 @@ export type ErrorCode =
   | 'invalid_input'
   /** The OS has no keyring, so the token cannot be stored safely. */
   | 'secrets_unavailable'
-  /** An Orca host call failed (for example the worker was restarting). */
+  /** An Orca host call failed (workspace create, agent launch, open). */
   | 'orca_failed'
   /** ClickUp refused a write for lack of permission (ACCESS_*, 403, non-OAUTH 401). */
   | 'forbidden'

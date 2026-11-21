@@ -1,5 +1,5 @@
-// Sample tasks for panel checks and view tests.
-import type { ListTasksPage, SpaceChildren, SpaceRef, StatusOption, TaskComment, TaskDetail, TaskSummary } from '../shared/model'
+// Sample tasks for panel checks and view tests (the same tasks as docs/design/Main.dc.html).
+import type { ListTasksPage, SettingsState, SpaceChildren, SpaceRef, StartOptions, StatusOption, TaskComment, TaskDetail, TaskSummary } from '../shared/model'
 
 const base = { customId: null, parentId: null, updatedAt: 1, dueDate: null }
 // Both presets match some tasks: created today = at or after local midnight, estimates mixed.
@@ -75,3 +75,18 @@ export const checkStatuses: StatusOption[] = [
   { name: 'in progress', type: 'custom', order: 1 },
   { name: 'review', type: 'custom', order: 2 }
 ]
+
+export const checkOptions: StartOptions = {
+  projects: [{ id: 'p1', name: 'billing', hostId: 'local' }],
+  suggestedProjectId: 'p1',
+  agents: [{ id: 'claude', label: 'Claude' }],
+  workspaceName: 'CU-86c1x2a-Migrate-billing-webhooks-to-v2',
+  inProgressStatus: 'in progress',
+  defaults: { agent: 'claude', moveToInProgress: true, baseBranch: '', taskContext: 'auto' }
+}
+
+export const checkSettings: SettingsState = {
+  settings: { defaultAgent: 'claude', moveToInProgress: true, defaultBaseBranch: '', notifyOnDone: true, notifyOnNeedsInput: false, taskContext: 'auto' },
+  agents: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }],
+  clickUpReaders: []
+}

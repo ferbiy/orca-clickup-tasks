@@ -14,7 +14,7 @@ export function ConnectView() {
   return (
     <Stack gap="md">
       <Heading level={2}>Connect ClickUp</Heading>
-      <Text muted>See the tasks assigned to you, browse your Spaces and edit tasks without leaving Orca.</Text>
+      <Text muted>See the tasks assigned to you and start any of them in its own worktree with your coding agent.</Text>
       {notice ? <Callout tone={notice.tone}>{notice.text}</Callout> : null}
       {noKeychain ? (
         <Callout tone="danger" title="No keychain available">

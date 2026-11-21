@@ -14,6 +14,7 @@ function Body() {
   const result = read(s.tasks)
   const error = read(s.tasksError)
   const groups = read(s.groupedTasks)
+  const links = read(s.linkByTask)
   if (error && !result) {
     return (
       <Callout tone="danger" title="Could not load tasks">
@@ -31,7 +32,7 @@ function Body() {
   if (!result) return <Skeleton lines={6} />
   if (result.tasks.length === 0) return <EmptyState icon="check" title="No open tasks assigned to you" />
   if (groups.length === 0) return <EmptyState icon="search" title="No tasks match" description="Try a different search, List or filter." />
-  return <TaskGroups groups={groups} />
+  return <TaskGroups groups={groups} links={links} />
 }
 
 function MyTasks() {

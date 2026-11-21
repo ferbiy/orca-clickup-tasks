@@ -41,7 +41,7 @@ export class TaskService {
   private inFlight: Promise<TaskListResult> | null = null
   /** Shared in-flight reads by key, so a double expand or double open costs one ClickUp call. */
   private readonly pending = new Map<string, Promise<unknown>>()
-  /** Recently fetched details, so a caller passing `reuse` gets what tasks.get just fetched. */
+  /** Recently fetched details, so start.options reuses what tasks.get just fetched. */
   private readonly recent = new Map<string, { at: number; task: TaskDetail }>()
 
   constructor(private readonly deps: TaskServiceDeps) {

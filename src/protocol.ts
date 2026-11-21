@@ -11,11 +11,18 @@ import type {
   CommentPage,
   ListTasksPage,
   Person,
+  PluginSettings,
+  RetryRequest,
+  SettingsState,
   SpaceChildren,
   SpaceRef,
+  StartOptions,
+  StartRequest,
   StatusOption,
   TaskComment,
+  TaskContextMode,
   TaskDetail,
+  TaskLink,
   TaskListResult,
   TaskPatch,
   UpdateTaskRequest
@@ -91,13 +98,54 @@ declare module 'orca' {
 
     /** Copies a ClickUp task link (https://app.clickup.com/…) to the OS clipboard. */
     'clipboard.copyTaskUrl': { input: { url: string }; output: Result<{ ok: true }> }
-    /** Drops cached tasks, statuses and the Browse tree (not the token or Workspace choice), then posts 'tasks.changed'. */
+    /** Everything the Start form needs for one task. */
+    'start.options': { input: { taskId: string }; output: Result<StartOptions> }
+    /** Creates the worktree, launches the agent with the task prompt, records the link. */
+    'start.run': { input: StartRequest; output: Result<TaskLink> }
+
+    /** The plugin's settings, the agent choices and which agents can read ClickUp (Phase 6/8). */
+    'settings.get': { output: Result<SettingsState> }
+    /**
+     * Merges the given fields into the settings and returns the result. Unknown keys are ignored;
+     * a wrong type or an unknown agent id is `invalid_input` and nothing is saved.
+     */
+    'settings.update': { input: Partial<PluginSettings>; output: Result<SettingsState> }
+    /** Forgets the learned ClickUp access of every agent (the Settings tab's Forget button). */
+    'settings.forgetAgentContext': { output: Result<SettingsState> }
+    /** Drops cached tasks, statuses and the Browse tree (not the token, settings or links), then posts 'tasks.changed'. */
     'cache.clear': { output: Result<{ ok: true }> }
+
+    /** Every task <-> workspace link, newest first. */
+    'links.list': { output: Result<TaskLink[]> }
+    /** Shows a linked workspace in Orca. */
+    'links.open': { input: { workspaceId: string }; output: Result<{ ok: true }> }
+
+    /**
+     * Looks at runs Orca's events may have left behind (agents.list, then the agent's terminal) and
+     * marks them 'stalled' or 'failed'. One run with `workspaceId`, else every run not done.
+     * Answers every link, newest first.
+     */
+    'runs.check': { input: { workspaceId?: string }; output: Result<TaskLink[]> }
+    /** Starts an agent again in a run's worktree (same branch), with the task prompt. */
+    'runs.retry': { input: RetryRequest; output: Result<TaskLink> }
+    /**
+     * Types the task prompt into the run's agent; Orca switches to the workspace to do it.
+     * `taskContext` overrides the run's mode ("Send the task details" sends 'snapshot-only').
+     */
+    'runs.sendPrompt': { input: { workspaceId: string; taskContext?: TaskContextMode }; output: Result<TaskLink> }
+    /** The task prompt for a run, for the person to paste when the agent never got it. */
+    'runs.prompt': { input: { workspaceId: string }; output: Result<{ text: string }> }
+    /** Stops tracking a run. The worktree and its terminals stay. Posts 'link.removed'. */
+    'runs.forget': { input: { workspaceId: string }; output: Result<{ ok: true }> }
   }
 
   interface PluginPanelEvents {
-    /** The task cache changed (refresh, update, edit). The panel re-requests 'tasks.list'. */
+    /** The task cache changed (refresh, update, start). The panel re-requests 'tasks.list'. */
     'tasks.changed': { fetchedAt: number }
+    /** A link was created or its run state changed. */
+    'link.changed': TaskLink
+    /** A link was removed (its workspace was deleted in Orca, or the person stopped tracking it). */
+    'link.removed': { workspaceId: string }
     /** The token or Workspace changed in another panel run. */
     'auth.changed': AuthState
   }

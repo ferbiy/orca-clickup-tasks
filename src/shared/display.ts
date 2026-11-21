@@ -58,6 +58,14 @@ export function dueLabel(dueDate: number | null, now: number): { label: string; 
 }
 
 /**
+ * The comment prefilled on the Done screen (plain text, newline-separated):
+ * "Done by <agentLabel> in Orca.\nBranch: <branch>\nPR: [PASTE PR LINK]\nSummary: "
+ */
+export function doneCommentTemplate(agentLabel: string, branch: string): string {
+  return `Done by ${agentLabel} in Orca.\nBranch: ${branch}\nPR: [PASTE PR LINK]\nSummary: `
+}
+
+/**
  * "45m", "2h", "2h 30m", "1d 3h": at most two units, days only from 24h up.
  * Seconds round to the nearest minute (at least 1m); 0, negative or null → null.
  */

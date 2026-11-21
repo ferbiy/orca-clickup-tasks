@@ -55,6 +55,7 @@ function BrowseTree() {
 function ListTasks() {
   const page = read(s.browseTasks)
   const groups = read(s.browseGroups)
+  const links = read(s.linkByTask)
   const active = read(s.browseActiveFilterCount)
   const shown = read(s.browseFilteredCount)
   if (page?.error && page.tasks.length === 0) {
@@ -78,7 +79,7 @@ function ListTasks() {
       {groups.length === 0 ? (
         <EmptyState icon="search" title="No tasks match" description="Load more to search further, or change the search or filter." />
       ) : (
-        <TaskGroups groups={groups} showLocation={false} />
+        <TaskGroups groups={groups} links={links} showLocation={false} />
       )}
       {page.error ? <Callout tone="warning">{api.messageFor(page.error)}</Callout> : null}
       {!page.lastPage ? (

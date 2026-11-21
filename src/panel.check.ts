@@ -2,7 +2,7 @@
 // Seeds are what the worker reads from storage and secrets; no scenario reaches ClickUp.
 import { defineCheck } from 'orca/testing'
 import type { JsonValue } from 'orca'
-import { checkChildren, checkComments, checkDetail, checkPage, checkSpaces, checkStatuses, checkTasks } from './panel/check-fixtures'
+import { checkChildren, checkComments, checkDetail, checkOptions, checkPage, checkSettings, checkSpaces, checkStatuses, checkTasks } from './panel/check-fixtures'
 
 /** Plain JSON copy: storage seeds are JsonValue, the model types have no index signature. */
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue
@@ -82,6 +82,7 @@ export default defineCheck({
     ...connected,
     persisted: { plugin: { activeTab: 'settings' } },
     requests: {
+      'settings.get': { ok: true, value: json(checkSettings) },
       'tasks.list': { ok: true, value: { tasks: json(checkTasks), fetchedAt: now, stale: false } }
     } as never
   },
@@ -97,6 +98,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: [], next: null } }
     } as never
   },
@@ -113,6 +115,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: [], next: null } }
     } as never
   },
@@ -129,6 +132,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: [], next: null } }
     } as never
   },
@@ -148,6 +152,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: [], next: null } }
     } as never
   },
@@ -163,6 +168,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: [], next: null } }
     } as never
   },
@@ -178,6 +184,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: [], next: null } }
     } as never
   },
@@ -193,6 +200,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: json(checkComments), next: null } }
     } as never
   },
@@ -212,6 +220,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: json(checkComments), next: null } }
     } as never
   },
@@ -227,6 +236,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: json(checkComments), next: null } }
     } as never
   },
@@ -242,6 +252,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: json(checkComments), next: null } }
     } as never
   },
@@ -257,6 +268,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: json(checkComments), next: null } }
     } as never
   },
@@ -266,6 +278,7 @@ export default defineCheck({
     requests: {
       'tasks.get': { ok: true, value: json(checkDetail) },
       'tasks.statuses': { ok: true, value: json(checkStatuses) },
+      'start.options': { ok: true, value: json(checkOptions) },
       'tasks.comments': { ok: true, value: { comments: json(checkComments), next: { start: 1, startId: 'c3' } } }
     } as never
   }

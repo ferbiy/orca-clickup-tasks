@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task detail and start</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0b0c}
+a{color:#93c5fd}a:hover{color:#bfdbfe}
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:500;line-height:1;white-space:nowrap}
+.b-neutral{background:#27272a;color:#d4d4d8}
+.b-warning{background:#422006;color:#fcd34d}
+.b-danger{background:#450a0a;color:#fca5a5}
+.btn{height:32px;padding:0 12px;border-radius:6px;font:inherit;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box}
+.btn-solid{background:#fafafa;color:#09090b;border:1px solid #fafafa}
+.sel{height:32px;border-radius:6px;border:1px solid #3f3f46;background:#0b0b0c;color:#fafafa;font:inherit;font-size:13px;padding:0 8px;width:100%}
+.lbl{font-size:12px;font-weight:500;color:#d4d4d8}
+.mono{font-family:'Geist Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="width: 360px; height: 780px; box-sizing: border-box; background: #0b0b0c; color: #fafafa; font-family: Geist, Inter, system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; border-left: 1px solid #27272a">
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px">
+    <a href="Main.dc.html" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #a1a1aa; text-decoration: none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>My Tasks
+    </a>
+    <a href="#" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; text-decoration: none">Open in ClickUp
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+    </a>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 14px 16px; border-bottom: 1px solid #27272a">
+    <h1 style="margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35">Migrate billing webhooks to v2</h1>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+      <span class="badge b-neutral">To do</span>
+      <span class="badge b-warning">High</span>
+      <span class="badge b-danger">Due tomorrow</span>
+      <span class="mono" style="font-size: 11px; color: #a1a1aa">#86c1x2a</span>
+    </div>
+    <span style="font-size: 12px; color: #a1a1aa">API › Backlog</span>
+    <p style="margin: 0; color: #d4d4d8; line-height: 1.55">Stripe deprecates the v1 event payloads on Jan 15. Move <code class="mono" style="font-size: 12px; background: #18181b; padding: 1px 4px; border-radius: 4px">/webhooks/stripe</code> to the v2 thin-event format and fetch full objects on demand…</p>
+    <a href="#" style="font-size: 12px; align-self: flex-start">Show full description</a>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-size: 12px; color: #a1a1aa">Checklist 1 of 3</span>
+      <div style="height: 4px; border-radius: 4px; background: #27272a"><div style="width: 33%; height: 4px; border-radius: 4px; background: #fafafa"></div></div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 14px; padding: 16px">
+    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Start in worktree</h2>
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <label for="project" class="lbl">Project</label>
+      <select id="project" class="sel"><option>acme/billing-service</option><option>acme/web-app</option></select>
+      <span style="font-size: 12px; color: #a1a1aa">Remembered for the list “API › Backlog”.</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="agent" class="lbl">Agent</label>
+        <select id="agent" class="sel"><option>Claude</option><option>Codex</option></select>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="base" class="lbl">Base branch</label>
+        <select id="base" class="sel"><option>main</option><option>develop</option></select>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Branch</span>
+      <code class="mono" style="font-size: 12px; background: #18181b; border: 1px solid #27272a; border-radius: 6px; padding: 7px 10px; color: #e4e4e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">CU-86c1x2a-migrate-billing-webhooks-v2</code>
+    </div>
+
+    <details style="border: 1px solid #27272a; border-radius: 6px; padding: 8px 10px">
+      <summary style="cursor: pointer; font-size: 12px; color: #d4d4d8">Prompt sent to Claude</summary>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #a1a1aa; line-height: 1.5">Title, description, checklist, subtasks and link, fenced as task data, not instructions.</p>
+    </details>
+
+    <label style="display: flex; gap: 8px; align-items: center; font-size: 13px; color: #d4d4d8">
+      <input type="checkbox" checked style="width: 16px; height: 16px; margin: 0; accent-color: #fafafa">
+      Move task to “In progress” on start
+    </label>
+
+    <a href="Running.dc.html" class="btn btn-solid" style="text-decoration: none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"></path></svg>
+      Start in worktree
+    </a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":360,"height":780}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

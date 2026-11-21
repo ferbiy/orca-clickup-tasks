@@ -3,8 +3,7 @@
   "id": "clickup-tasks",
   "name": "ClickUp Tasks",
   "version": "0.1.0",
-  "description": "Your ClickUp tasks in Orca's sidebar: browse, read and edit tasks, checklists, subtasks and comments without leaving Orca.",
-  "license": "MIT",
+  "description": "Your ClickUp tasks in Orca's sidebar: start any task in its own worktree with your coding agent, then update its status when the agent is done.",
   "engines": {
     "orca": ">=1.4.259"
   },
@@ -20,10 +19,22 @@
         "entry": "src/panel.tsx",
         "ui": "components"
       }
+    ],
+    "events": [
+      { "on": "agent.status.changed" },
+      { "on": "workspace.removed" }
     ]
   },
   "capabilities": [
     { "kind": "secrets:own" },
-    { "kind": "storage:own" }
+    { "kind": "storage:own" },
+    { "kind": "workspace:read" },
+    { "kind": "workspace:create" },
+    { "kind": "workspace:write" },
+    { "kind": "agent:launch" },
+    { "kind": "agent:read" },
+    { "kind": "terminal:read" },
+    { "kind": "terminal:send" },
+    { "kind": "notifications:show" }
   ]
 }
