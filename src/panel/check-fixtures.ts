@@ -1,0 +1,77 @@
+// Sample tasks for panel checks and view tests.
+import type { ListTasksPage, SpaceChildren, SpaceRef, StatusOption, TaskComment, TaskDetail, TaskSummary } from '../shared/model'
+
+const base = { customId: null, parentId: null, updatedAt: 1, dueDate: null }
+// Both presets match some tasks: created today = at or after local midnight, estimates mixed.
+const today = new Date().setHours(0, 0, 0, 0) + 1000
+const DAY = 86_400_000
+const HOUR = 3_600_000
+
+export const checkTasks: TaskSummary[] = [
+  { ...base, id: '86c0p1f', createdAt: today, timeEstimateMs: null, name: 'Fix login redirect loop on Safari', status: { name: 'in progress', type: 'custom' }, priority: 'urgent', url: 'https://app.clickup.com/t/86c0p1f', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
+  { ...base, id: '86c0q8r', createdAt: today, timeEstimateMs: HOUR, name: 'Rate-limit public search API', status: { name: 'in progress', type: 'custom' }, priority: 'high', url: 'https://app.clickup.com/t/86c0q8r', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' },
+  { ...base, id: '86c1x2a', createdAt: today - DAY, timeEstimateMs: null, name: 'Migrate billing webhooks to v2', status: { name: 'to do', type: 'open' }, priority: 'high', url: 'https://app.clickup.com/t/86c1x2a', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' },
+  { ...base, id: '86c1y7m', createdAt: today - 3 * DAY, timeEstimateMs: 2 * HOUR, name: 'Add CSV export to reports', status: { name: 'to do', type: 'open' }, priority: 'normal', url: 'https://app.clickup.com/t/86c1y7m', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
+  { ...base, id: '86c1z3k', createdAt: today - DAY, timeEstimateMs: HOUR, name: 'Dark mode for settings page', status: { name: 'to do', type: 'open' }, priority: 'low', url: 'https://app.clickup.com/t/86c1z3k', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
+  { ...base, id: '86c0z7k', createdAt: today, timeEstimateMs: null, name: 'Dedupe Stripe customer records', status: { name: 'review', type: 'custom' }, priority: null, url: 'https://app.clickup.com/t/86c0z7k', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' }
+]
+
+// ── Browse and rich detail ─────────────────────────────────────────────────
+
+export const checkSpaces: SpaceRef[] = [
+  { id: 'sp1', name: 'Web App' },
+  { id: 'sp2', name: 'API' }
+]
+
+export const checkChildren: SpaceChildren = {
+  spaceId: 'sp1',
+  folders: [{ id: 'f1', name: 'Sprints', lists: [{ id: 'L-web', name: 'Sprint 42', taskCount: 14 }, { id: 'L-web2', name: 'Sprint 41', taskCount: 31 }] }],
+  lists: [{ id: 'L-ideas', name: 'Ideas', taskCount: 1 }, { id: 'L-misc', name: 'Misc', taskCount: null }]
+}
+
+export const checkPage: ListTasksPage = { listId: 'L-web', page: 0, tasks: checkTasks.filter((t) => t.list.id === 'L-web'), lastPage: false }
+
+export const checkDetail: TaskDetail = {
+  ...checkTasks[2]!,
+  dueDate: Date.now() + 3 * 86_400_000,
+  description: 'Move the **billing webhooks** to v2.\n\n- keep the old endpoint for one release\n- add signature checks',
+  checklists: [
+    {
+      id: 'cl1',
+      name: 'Steps',
+      items: [
+        { id: 'i1', name: 'Draft', resolved: true },
+        { id: 'i2', name: 'Ship', resolved: false }
+      ]
+    }
+  ],
+  subtasks: [
+    { id: '86c1x2b', name: 'Add v2 signature check', status: { name: 'in progress', type: 'custom' } },
+    { id: '86c1x2c', name: 'Write the migration note', status: { name: 'to do', type: 'open' } }
+  ],
+  tags: ['billing', 'backend'],
+  assignees: [{ id: 'u1', name: 'Linh Nguyen', initials: 'LN' }, { id: 'u2', name: 'Sam Reyes', initials: 'SR' }],
+  watchers: [{ id: 'u2', name: 'Sam Reyes', initials: 'SR' }],
+  startDate: null,
+  spaceId: 'sp1',
+  timeEstimateMs: 9_000_000,
+  timeSpentMs: 3_600_000,
+  attachments: [
+    { id: 'a1', title: 'webhook-flow.png', url: 'https://t1.clickup.com/a1', extension: 'png', size: 1_258_291, createdAt: Date.now() - 86_400_000 },
+    { id: 'a2', title: 'payload-sample.json', url: 'https://t1.clickup.com/a2', extension: 'json', size: 820, createdAt: null }
+  ],
+  customFields: []
+}
+
+const person = { id: 'u2', name: 'Sam Reyes', initials: 'SR' }
+export const checkComments: TaskComment[] = [
+  { id: 'c1', author: person, text: 'Staging looks good, switching traffic tomorrow.', assignee: null, resolved: false, createdAt: Date.now() - 3_600_000, replyCount: 0 },
+  { id: 'c2', author: { id: 'u1', name: 'Linh Nguyen', initials: 'LN' }, text: 'Can we keep v1 alive until Friday?', assignee: person, resolved: false, createdAt: Date.now() - 7_200_000, replyCount: 2 },
+  { id: 'c3', author: null, text: 'Created from the billing epic.', assignee: null, resolved: false, createdAt: Date.now() - 86_400_000, replyCount: 0 }
+]
+
+export const checkStatuses: StatusOption[] = [
+  { name: 'to do', type: 'open', order: 0 },
+  { name: 'in progress', type: 'custom', order: 1 },
+  { name: 'review', type: 'custom', order: 2 }
+]

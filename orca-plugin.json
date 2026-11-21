@@ -1,0 +1,29 @@
+{
+  "manifestVersion": 2,
+  "id": "clickup-tasks",
+  "name": "ClickUp Tasks",
+  "version": "0.1.0",
+  "description": "Your ClickUp tasks in Orca's sidebar: browse, read and edit tasks, checklists, subtasks and comments without leaving Orca.",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.259"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "clickup-tasks",
+        "title": "ClickUp Tasks",
+        "icon": "calendar",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "secrets:own" },
+    { "kind": "storage:own" }
+  ]
+}
