@@ -17,5 +17,5 @@ Your ClickUp tasks in Orca's sidebar: browse, read and edit tasks, checklists an
 
 **Suggested repo topics:** `orca-plugin`, `clickup`, `orca`, `task-management`
 
-**Repository:** https://github.com/<owner>/orca-clickup-tasks
+**Repository:** https://github.com/gthjnk/orca-clickup-tasks
 **Requires:** Orca >=1.4.259 · **License:** MIT
