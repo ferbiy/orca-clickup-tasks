@@ -2,8 +2,19 @@
   "manifestVersion": 2,
   "id": "clickup-tasks",
   "name": "ClickUp Tasks",
-  "version": "0.1.0",
-  "description": "Your ClickUp tasks in Orca's sidebar: browse, read and edit tasks, checklists, subtasks and comments without leaving Orca.",
+  "version": "0.1.1",
+  "description": "ClickUp in Orca's sidebar: see the tasks assigned to you, browse Spaces, Folders and Lists, and edit status, priority, due dates, assignees, checklists, subtasks and comments without leaving Orca.",
+  "author": {
+    "name": "Gia Thinh",
+    "url": "https://github.com/gthjnk"
+  },
+  "repository": "https://github.com/gthjnk/orca-clickup-tasks",
+  "homepage": "https://github.com/gthjnk/orca-clickup-tasks",
+  "icon": "assets/icon.png",
+  "cover": {
+    "path": "assets/cover.png",
+    "alt": "ClickUp Tasks panel in Orca's sidebar listing tasks grouped by status, with priority and due date badges."
+  },
   "license": "MIT",
   "engines": {
     "orca": ">=1.4.259"
@@ -23,7 +34,11 @@
     ]
   },
   "capabilities": [
-    { "kind": "secrets:own" },
-    { "kind": "storage:own" }
+    {
+      "kind": "secrets:own"
+    },
+    {
+      "kind": "storage:own"
+    }
   ]
 }

@@ -1,6 +1,8 @@
 # ClickUp Tasks for Orca
 
-Your ClickUp tasks in Orca's sidebar: browse, read and edit them without leaving Orca.
+A ClickUp integration for [Orca](https://orca.dev): your ClickUp tasks in Orca's sidebar. See what is assigned to you, browse Spaces, Folders and Lists, and edit tasks, checklists, subtasks and comments without leaving Orca.
+
+![ClickUp Tasks panel in Orca's sidebar](assets/cover.png)
 
 ## Features
 
@@ -17,7 +19,7 @@ Your ClickUp tasks in Orca's sidebar: browse, read and edit them without leaving
 ```sh
 orca plugin install gthjnk/orca-clickup-tasks --json
 # or pin a version tag
-orca plugin install gthjnk/orca-clickup-tasks@v0.1.0 --json
+orca plugin install gthjnk/orca-clickup-tasks@v0.1.1 --json
 ```
 
 The plugin runs code, so the first install exits with `approval_required` and prints an `--approve` fingerprint. Review the [permissions](#permissions) below, then re-run the same command with `--approve <fingerprint>`.

@@ -3,7 +3,7 @@
 **Name:** ClickUp Tasks
 
 **Description (≤ 120 chars):**
-Your ClickUp tasks in Orca's sidebar: browse, read and edit tasks, checklists and comments.
+ClickUp in Orca's sidebar: see your tasks, browse Lists, edit status, checklists and comments.
 
 **Highlights**
 
@@ -13,9 +13,9 @@ Your ClickUp tasks in Orca's sidebar: browse, read and edit tasks, checklists an
 - Manage checklists, subtasks and comments (replies, @mentions, resolve).
 - Token stays in the OS keychain; only two permissions (secrets, storage); no telemetry.
 
-**Keywords:** clickup, tasks, project management, sidebar, productivity
+**Keywords:** clickup, clickup integration, tasks, issues, project management, sprint, checklist, sidebar, productivity
 
-**Suggested repo topics:** `orca-plugin`, `clickup`, `orca`, `task-management`
+**Repo topics:** `orca-plugin`, `orca`, `clickup`, `clickup-api`, `clickup-integration`, `task-management`, `project-management`, `productivity`, `developer-tools`
 
 **Repository:** https://github.com/gthjnk/orca-clickup-tasks
 **Requires:** Orca >=1.4.259 · **License:** MIT
