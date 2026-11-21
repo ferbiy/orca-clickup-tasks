@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "clickup-tasks",
   "name": "ClickUp Tasks",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "ClickUp in Orca's sidebar: see the tasks assigned to you, browse Spaces, Folders and Lists, and edit status, priority, due dates, assignees, checklists, subtasks and comments without leaving Orca.",
   "author": {
     "name": "Gia Thinh",

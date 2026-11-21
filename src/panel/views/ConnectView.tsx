@@ -36,7 +36,7 @@ export function ConnectView() {
       ) : null}
       {noKeychain ? (
         <Callout tone="danger" title="No keychain available">
-          This system has no OS keychain, so the token cannot be stored safely.
+          This system has no OS keychain, so the token cannot be stored safely. On Linux, install and unlock GNOME Keyring or KWallet, then restart Orca.
         </Callout>
       ) : null}
       {pickTeam ? (

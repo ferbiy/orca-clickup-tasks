@@ -19,7 +19,7 @@ A ClickUp integration for [Orca](https://orca.dev): your ClickUp tasks in Orca's
 ```sh
 orca plugin install gthjnk/orca-clickup-tasks --json
 # or pin a version tag
-orca plugin install gthjnk/orca-clickup-tasks@v0.1.4 --json
+orca plugin install gthjnk/orca-clickup-tasks@v0.1.5 --json
 ```
 
 The plugin runs code, so the first install exits with `approval_required` and prints an `--approve` fingerprint. Review the [permissions](#permissions) below, then re-run the same command with `--approve <fingerprint>`.

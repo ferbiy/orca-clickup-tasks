@@ -33,7 +33,7 @@ export const MESSAGES: Record<ErrorCode, string> = {
   invalid_input: 'That did not look right.',
   forbidden: 'Your ClickUp plan does not allow that. Locked fields stay read-only.',
   conflict: 'This task changed in ClickUp. It was reloaded; your text is kept.',
-  secrets_unavailable: 'This system has no keychain, so the token cannot be stored safely.',
+  secrets_unavailable: 'This system has no keychain, so the token cannot be stored safely. On Linux, install and unlock GNOME Keyring or KWallet, then restart Orca.',
   orca_failed: 'Orca could not finish that action.'
 }
 

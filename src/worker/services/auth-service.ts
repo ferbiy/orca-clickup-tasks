@@ -54,7 +54,7 @@ export class AuthService {
     const token = rawToken.trim()
     if (!token) throw new PluginError('invalid_input', 'Paste your ClickUp API token.')
     if ((await this.deps.secrets.protection()) === 'unavailable') {
-      throw new PluginError('secrets_unavailable', 'This system has no keychain to store the token safely.')
+      throw new PluginError('secrets_unavailable', 'This system has no keychain to store the token safely. On Linux, install and unlock GNOME Keyring or KWallet, then restart Orca.')
     }
     const tracker = this.deps.trackerFor(token)
     const user = await tracker.verify()
