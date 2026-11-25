@@ -77,16 +77,28 @@ export const checkStatuses: StatusOption[] = [
 ]
 
 export const checkOptions: StartOptions = {
-  projects: [{ id: 'p1', name: 'billing', hostId: 'local' }],
+  projects: [
+    { id: 'p1', name: 'billing', hostId: 'local', hostLabel: 'this computer' },
+    { id: 'p2', name: 'billing', hostId: 'runtime:srv', hostLabel: 'Orca server' }
+  ],
   suggestedProjectId: 'p1',
   agents: [{ id: 'claude', label: 'Claude' }],
   workspaceName: 'CU-86c1x2a-Migrate-billing-webhooks-to-v2',
   inProgressStatus: 'in progress',
-  defaults: { agent: 'claude', moveToInProgress: true, baseBranch: '', taskContext: 'auto' }
+  inProgressWhy: "Automatic, from this List's status types.",
+  defaults: { agent: 'claude', moveToInProgress: true, baseBranch: '', taskContext: 'link-and-snapshot' }
 }
 
 export const checkSettings: SettingsState = {
-  settings: { defaultAgent: 'claude', moveToInProgress: true, defaultBaseBranch: '', notifyOnDone: true, notifyOnNeedsInput: false, taskContext: 'auto' },
-  agents: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }],
-  clickUpReaders: []
+  settings: {
+    defaultAgent: 'claude',
+    moveToInProgress: true,
+    commentOnStart: true,
+    moveOnDone: true,
+    defaultBaseBranch: '',
+    notifyOnDone: true,
+    notifyOnNeedsInput: false,
+    taskContext: 'link-and-snapshot'
+  },
+  agents: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }]
 }

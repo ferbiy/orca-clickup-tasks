@@ -2,9 +2,9 @@
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as main from './worker'
 
+// Exactly the manifest's capabilities: a call needing anything else is a refusal the tests catch.
 const CAPABILITIES = [
-  'secrets:own', 'storage:own', 'workspace:read', 'workspace:create', 'workspace:write',
-  'agent:launch', 'agent:read', 'terminal:read', 'terminal:send', 'notifications:show'
+  'secrets:own', 'storage:own', 'workspace:read', 'workspace:create', 'agent:launch', 'agent:read', 'notifications:show'
 ]
 
 test('answers Result envelopes: disconnected state and a typed error', async () => {
@@ -14,7 +14,15 @@ test('answers Result envelopes: disconnected state and a typed error', async () 
   const state = await worker.request('auth.state')
   assert.deepEqual(state, {
     ok: true,
-    value: { connected: false, user: null, teams: [], teamId: null, secretProtection: 'os-keyring' }
+    value: {
+      connected: false,
+      method: null,
+      oauth: { clientId: null, redirectUri: 'http://127.0.0.1:47386/callback', pending: null },
+      user: null,
+      teams: [],
+      teamId: null,
+      secretProtection: 'os-keyring'
+    }
   })
 
   const list = await worker.request('tasks.list', {})
@@ -95,7 +103,7 @@ test('settings.get / settings.update validate and persist; cache.clear answers o
   await worker.deactivate()
 })
 
-test('taskContext validates everywhere it is accepted; forgetAgentContext clears the learned list', async () => {
+test('taskContext, scope and status overrides are validated', async () => {
   const host = mockHost({ capabilities: CAPABILITIES, results: { 'secrets.protection': { status: 'os-keyring' } } })
   const worker = await mountWorker(main, { host, events: ['agent.status.changed', 'workspace.removed'] })
   const code = (r: unknown) => (r as { ok: boolean; error?: { code: string } }).error?.code
@@ -104,15 +112,26 @@ test('taskContext validates everywhere it is accepted; forgetAgentContext clears
   assert.equal(code(await worker.request('settings.update', { taskContext: 5 } as never)), 'invalid_input')
   const saved = await worker.request('settings.update', { taskContext: 'link-only' })
   assert.equal(saved.ok && saved.value.settings.taskContext, 'link-only')
-  assert.equal(saved.ok && (saved.value.clickUpReaders as string[]).length, 0)
-
-  assert.equal(code(await worker.request('runs.sendPrompt', { workspaceId: 'w', taskContext: 'maybe' } as never)), 'invalid_input')
-  assert.equal(code(await worker.request('runs.retry', { workspaceId: 'w', agent: 'claude', taskContext: 'maybe' } as never)), 'invalid_input')
+  assert.equal(code(await worker.request('settings.update', { taskContext: 'auto' } as never)), 'invalid_input')
   assert.equal(code(await worker.request('start.run', { taskId: 't', projectId: 'p', agent: 'claude', taskContext: 1 } as never)), 'invalid_input')
+  assert.equal(code(await worker.request('lists.setOverride', { listId: 'L', which: 'later', override: { mode: 'auto' } } as never)), 'invalid_input')
+  assert.equal(code(await worker.request('lists.setOverride', { listId: 'L', which: 'start', override: { mode: 'status' } } as never)), 'invalid_input')
+  // Not signed in: the scope has no Workspace, so nothing is stored.
+  const scope = await worker.request('scope.set', { scope: { spaces: ['s'], folders: [], lists: [] } })
+  assert.deepEqual(scope.ok && scope.value, { spaces: [], folders: [], lists: [] })
+  assert.deepEqual(worker.refusals, [])
+  await worker.deactivate()
+})
 
-  const forgotten = await worker.request('settings.forgetAgentContext')
-  assert.equal(forgotten.ok, true)
-  assert.equal(forgotten.ok && Array.isArray(forgotten.value.clickUpReaders), true)
+test('the OAuth app secret never reaches storage, posts or answers', async () => {
+  const host = mockHost({ capabilities: CAPABILITIES, results: { 'secrets.protection': { status: 'os-keyring' } } })
+  const worker = await mountWorker(main, { host, events: ['agent.status.changed', 'workspace.removed'] })
+  const saved = await worker.request('auth.oauthSaveApp', { clientId: 'CLIENTID12345', clientSecret: 'TOPSECRET_123' })
+  assert.equal(saved.ok, true)
+  assert.ok(!JSON.stringify(saved).includes('TOPSECRET_123'))
+  assert.ok(!JSON.stringify(worker.posts).includes('TOPSECRET_123'))
+  assert.ok(!JSON.stringify(host.data().storage ?? {}).includes('TOPSECRET_123'))
+  assert.ok(!worker.logs.join('\n').includes('TOPSECRET_123'))
   assert.deepEqual(worker.refusals, [])
   await worker.deactivate()
 })

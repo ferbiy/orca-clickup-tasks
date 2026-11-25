@@ -9,18 +9,51 @@ const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as
 const tasksJson = json(checkTasks)
 
 const now = Date.now()
+// Everything the worker would fetch is seeded (scope, hierarchy, statuses), so no scenario calls ClickUp.
 const connected = {
   results: { 'secrets.protection': { status: 'os-keyring' } },
-  secrets: { 'clickup.token': 'pk_check' },
+  secrets: { 'clickup.token': 'oauth_check' },
   storage: {
+    'auth.method': 'oauth',
     'auth.profile': { user: { id: 'u1', name: 'Linh N.' }, teams: [{ id: 't1', name: 'Acme Engineering' }] },
     'prefs.userId': 'u1',
-    'prefs.teamId': 't1'
+    'prefs.teamId': 't1',
+    'prefs.scope:t1': { spaces: ['sp1'], folders: [], lists: [] },
+    'cache.spaces': { teamId: 't1', fetchedAt: now, spaces: json(checkSpaces) },
+    'cache.children': { sp1: { fetchedAt: now, children: json(checkChildren) } },
+    'cache.statuses': Object.fromEntries(
+      ['L-web', 'L-web2', 'L-ideas', 'L-misc', 'L-api'].map((id) => [id, { fetchedAt: now, statuses: json(checkStatuses) }])
+    )
   }
+}
+const oauthApp = {
+  secrets: { 'oauth.client': JSON.stringify({ clientId: 'CHECKCLIENT01', clientSecret: 'check-secret' }) }
 }
 
 export default defineCheck({
   disconnected: { results: { 'secrets.protection': { status: 'os-keyring' } } },
+  oauthAppSaved: { results: { 'secrets.protection': { status: 'os-keyring' } }, ...oauthApp },
+  oauthPending: {
+    results: { 'secrets.protection': { status: 'os-keyring' } },
+    ...oauthApp,
+    requests: {
+      'auth.state': {
+        ok: true,
+        value: {
+          connected: false, method: null, user: null, teams: [], teamId: null, secretProtection: 'os-keyring',
+          oauth: {
+            clientId: 'CHECKCLIENT01',
+            redirectUri: 'http://127.0.0.1:47386/callback',
+            pending: { authorizeUrl: 'https://app.clickup.com/api?client_id=CHECKCLIENT01&redirect_uri=http%3A%2F%2F127.0.0.1%3A47386%2Fcallback&state=abc', expiresAt: now + 600_000, listening: true }
+          }
+        }
+      }
+    } as never
+  },
+  noLists: {
+    ...connected,
+    storage: { ...connected.storage, 'prefs.scope:t1': { spaces: [], folders: [], lists: [] } }
+  },
   noKeychain: { results: { 'secrets.protection': { status: 'unavailable' } } },
   tasks: {
     ...connected,

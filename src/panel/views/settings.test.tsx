@@ -1,24 +1,41 @@
 // Settings tab tests: the real panel over a mock host that answers Result envelopes.
 import { assert, describe, mockHost, mount, test } from 'orca/testing'
 import * as panel from '../../panel'
-import { checkSettings, checkTasks } from '../check-fixtures'
-import type { AuthState } from '../../shared/model'
+import { checkChildren, checkSettings, checkSpaces, checkTasks } from '../check-fixtures'
+import type { AuthState, ListStatusMapping, Scope } from '../../shared/model'
 
 const connected: AuthState = {
   connected: true,
   user: { id: 'u1', name: 'Linh' },
   teams: [{ id: 't1', name: 'Acme' }],
   teamId: 't1',
+  method: 'oauth',
+  oauth: { clientId: 'CLIENTID123', redirectUri: 'http://127.0.0.1:47386/callback', pending: null },
   secretProtection: 'os-keyring'
 }
+const scope: Scope = { spaces: [], folders: [], lists: [{ id: checkChildren.lists[0]?.id ?? checkChildren.folders[0]!.lists[0]!.id, spaceId: 'sp1' }] }
+const mapping = (listId: string): ListStatusMapping => ({
+  listId,
+  statuses: [
+    { name: 'to do', type: 'open', order: 0 },
+    { name: 'doing', type: 'custom', order: 1 },
+    { name: 'complete', type: 'closed', order: 2 }
+  ],
+  start: { override: { mode: 'auto' }, resolved: { status: 'doing', source: 'auto', why: 'Automatic.' } },
+  done: { override: { mode: 'auto' }, resolved: { status: null, source: 'none', why: 'This List has no review status' } }
+})
 const ok = <T,>(value: T) => ({ ok: true, value })
 
 function requests(extra: Record<string, unknown> = {}) {
   return {
     'auth.state': ok(connected),
-    'tasks.list': ok({ tasks: checkTasks, fetchedAt: Date.now(), stale: false }),
+    'tasks.list': ok({ tasks: checkTasks, fetchedAt: Date.now(), stale: false, scopeEmpty: false }),
     'links.list': ok([]),
     'settings.get': ok(checkSettings),
+    'scope.get': ok(scope),
+    'browse.spaces': ok(checkSpaces),
+    'browse.children': (input: { spaceId: string }) => ok({ ...checkChildren, spaceId: input.spaceId }),
+    'lists.mapping': (input: { listId: string }) => ok(mapping(input.listId)),
     ...extra
   } as never
 }
@@ -33,12 +50,13 @@ async function openSettings(host: ReturnType<typeof mockHost>) {
 }
 
 describe('settings tab', () => {
-  test('loads and renders the five sections', async () => {
+  test('loads and renders the sections', async () => {
     const host = mockHost({ requests: requests() })
     const view = await openSettings(host)
     const text = JSON.stringify(view.tree())
-    for (const t of ['Account', 'Start defaults', 'Notifications', 'Data', 'About', 'Signed in as', 'Linh', 'Default agent',
-      'Default base branch', 'When an agent finishes', 'When an agent needs input', 'Clear cached tasks', 'How to get a ClickUp API token']) {
+    for (const t of ['Account', 'Lists', 'Start defaults', 'Notifications', 'Data', 'About', 'Signed in as', 'Linh', 'ClickUp OAuth app',
+      'Default agent', 'Default base branch', 'When an agent finishes', 'When an agent needs input', 'Clear cached tasks',
+      'Statuses per List', 'no token-revoke API'.replace('no token-revoke API', 'no API to revoke')]) {
       assert.ok(text.includes(t), `missing ${t}`)
     }
     assert.equal(callsOf(host, 'settings.get').length, 1)
@@ -71,10 +89,10 @@ describe('settings tab', () => {
     assert.ok(JSON.stringify(sw).includes('true'))
   })
 
-  test('Disconnect calls auth.disconnect', async () => {
+  test('Sign out calls auth.disconnect', async () => {
     const host = mockHost({ requests: requests({ 'auth.disconnect': ok({ ...connected, connected: false, user: null, teams: [], teamId: null }) }) })
     const view = await openSettings(host)
-    await view.press({ text: 'Disconnect' } as never)
+    await view.press({ text: 'Sign out' } as never)
     assert.equal(callsOf(host, 'auth.disconnect').length, 1)
   })
 
@@ -88,26 +106,38 @@ describe('settings tab', () => {
     assert.ok(JSON.stringify(view.tree()).includes('Cache cleared'))
   })
 
-  test('task context select updates settings; learned readers show and Forget calls forgetAgentContext', async () => {
-    const withReader = { ...checkSettings, clickUpReaders: ['Claude'] }
+  test('task context select updates settings', async () => {
     const host = mockHost({
-      requests: requests({
-        'settings.get': ok(withReader),
-        'settings.update': ok({ ...withReader, settings: { ...withReader.settings, taskContext: 'link-only' } }),
-        'settings.forgetAgentContext': ok({ ...withReader, clickUpReaders: [] })
-      })
+      requests: requests({ 'settings.update': ok({ ...checkSettings, settings: { ...checkSettings.settings, taskContext: 'link-only' } }) })
     })
     const view = await openSettings(host)
-    let text = JSON.stringify(view.tree())
-    assert.ok(text.includes('Task context'))
-    assert.ok(text.includes('Agents that read ClickUp themselves'))
-    assert.ok(text.includes('Claude'))
     await view.select({ label: 'Task context' } as never, 'link-only')
     assert.ok(JSON.stringify(callsOf(host, 'settings.update')[0]).includes('"taskContext":"link-only"'))
-    await view.press({ text: 'Forget what agents can read' } as never)
-    assert.equal(callsOf(host, 'settings.forgetAgentContext').length, 1)
-    text = JSON.stringify(view.tree())
-    assert.ok(!text.includes('Agents that read ClickUp themselves'))
+    assert.deepEqual([...view.errors], [])
+  })
+
+  test('Lists: choosing a whole Space and saving sends the new scope', async () => {
+    const host = mockHost({ requests: requests({ 'scope.set': (input: { scope: Scope }) => ok(input.scope) }) })
+    const view = await openSettings(host)
+    await view.toggle({ type: 'Collapsible', label: 'API' } as never)
+    await view.toggle({ label: 'Whole Space' } as never)
+    await view.press({ text: 'Save Lists' } as never)
+    const sent = JSON.stringify(callsOf(host, 'scope.set')[0])
+    assert.ok(sent.includes('"spaces":["sp2"]'), sent)
+    assert.deepEqual([...view.errors], [])
+  })
+
+  test('Lists: a List mapping shows the automatic pick and saves an override', async () => {
+    const host = mockHost({ requests: requests({ 'lists.setOverride': (input: { listId: string }) => ok(mapping(input.listId)) }) })
+    const view = await openSettings(host)
+    const listName = (checkChildren.lists[0] ?? checkChildren.folders[0]!.lists[0])!.name
+    await view.toggle({ type: 'Collapsible', label: listName } as never)
+    const text = JSON.stringify(view.tree())
+    assert.ok(text.includes('Automatic (doing)'), text.slice(0, 400))
+    assert.ok(text.includes('Automatic (none fits: no change)'))
+    await view.select({ label: 'When the agent is done' } as never, 'status:complete')
+    const sent = JSON.stringify(callsOf(host, 'lists.setOverride')[0])
+    assert.ok(sent.includes('"which":"done"') && sent.includes('"mode":"status"') && sent.includes('"name":"complete"'), sent)
     assert.deepEqual([...view.errors], [])
   })
 

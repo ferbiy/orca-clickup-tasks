@@ -6,8 +6,8 @@ import { LinkStore } from '../stores/link-store'
 import { RunWatcher, STALL_MS, type AgentStatusEvent } from './run-watcher'
 
 const DEFAULTS: PluginSettings = {
-  defaultAgent: 'claude', moveToInProgress: true, defaultBaseBranch: '', notifyOnDone: true, notifyOnNeedsInput: false,
-  taskContext: 'auto'
+  defaultAgent: 'claude', moveToInProgress: true, commentOnStart: true, moveOnDone: true, defaultBaseBranch: '',
+  notifyOnDone: true, notifyOnNeedsInput: false, taskContext: 'link-and-snapshot'
 }
 const WS = 'identity:wt2:local:7c3a0b3e'
 
@@ -23,15 +23,15 @@ function ev(state: AgentStatusEvent['state'], workspaceListId: string | undefine
   return { ...(workspaceListId ? { workspaceListId } : {}), state, mainAgent: { state } }
 }
 
-async function setup(initial: TaskLink[] = [link()], settings: Partial<PluginSettings> = {}) {
+async function setup(initial: TaskLink[] = [link()], settings: Partial<PluginSettings> = {}, onFirstFinish?: (l: TaskLink) => Promise<TaskLink['onDone'] | null>) {
   const links = new LinkStore(new MemoryKeyValueStore())
   for (const l of initial) await links.put(l)
   const gateway = new FakeGateway()
   const { post, posts } = recordingPoster()
   const clock = manualClock()
   const watcher = new RunWatcher({ links, gateway, post, clock: clock.now, agentLabel: (a) => (a === 'claude' ? 'Claude' : a),
-    settings: async () => ({ ...DEFAULTS, ...settings }) })
-  return { links, gateway, posts, watcher }
+    settings: async () => ({ ...DEFAULTS, ...settings }), ...(onFirstFinish ? { onFirstFinish } : {}) })
+  return { links, gateway, posts, watcher, clock }
 }
 
 describe('RunWatcher', () => {
@@ -159,280 +159,66 @@ describe('RunWatcher', () => {
   })
 })
 
-describe('RunWatcher.check (runs Orca sends no event for)', () => {
-  const missing = ['me@host CU-1 % gemini', 'zsh: command not found: gemini', 'me@host CU-1 % ']
-
-  async function checkSetup(initial: Partial<TaskLink> = {}, settings: Partial<PluginSettings> = {}) {
-    const links = new LinkStore(new MemoryKeyValueStore())
-    await links.put(link({ agent: 'gemini', terminalId: 'term_1', ...initial }))
-    const gateway = new FakeGateway()
-    const { post, posts } = recordingPoster()
-    const clock = manualClock(1_000)
-    const health: Record<string, boolean> = {}
-    const scheduled: number[] = []
-    const watcher = new RunWatcher({
-      links, gateway, post, clock: clock.now, agentLabel: (a) => (a === 'gemini' ? 'Gemini' : a),
-      settings: async () => ({ ...DEFAULTS, ...settings }),
-      agentHealth: { setMissing: async (agent, value) => { health[agent] = value } },
-      schedule: (_work, ms) => { scheduled.push(ms) }
-    })
-    return { links, gateway, posts, clock, watcher, health, scheduled }
-  }
-
-  test('a missing CLI fails the run at once, with the terminal lines, and notifies', async () => {
-    const t = await checkSetup({ run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.terminals[WS] = [{ id: 'term_1', title: 'Terminal 1' }]
-    t.gateway.output.term_1 = missing
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'failed')
-    assert.equal(after?.run.problem?.kind, 'agent_missing')
-    assert.ok(after?.run.problem?.lines.includes('zsh: command not found: gemini'))
-    assert.equal(t.health.gemini, true)
-    assert.equal(t.gateway.notifications[0]?.title, 'Gemini could not start')
-    assert.equal(t.posts.at(-1)?.event, 'link.changed')
-    // A second check changes nothing and does not notify again.
-    await t.watcher.check(WS)
-    assert.equal(t.gateway.notifications.length, 1)
-  })
-
+describe('RunWatcher.check (agents.list only)', () => {
   test('a quiet young run stays starting; after STALL_MS it is stalled (no agent)', async () => {
-    const t = await checkSetup({ run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.terminals[WS] = [{ id: 'term_1' }]
-    t.gateway.output.term_1 = ['running setup…']
-    assert.equal((await t.watcher.check(WS))?.run.state, 'starting')
-    t.clock.advance(STALL_MS)
-    const after = await t.watcher.check(WS)
+    const { watcher, clock, links } = await setup([link({ run: { state: 'starting', since: 1_795_186_000_000, sawWorking: false } })])
+    assert.equal((await watcher.check(WS))?.run.state, 'starting')
+    clock.advance(STALL_MS)
+    const after = await watcher.check(WS)
     assert.equal(after?.run.state, 'stalled')
-    assert.equal(after?.run.problem?.kind, 'no_agent')
-    assert.deepEqual(after?.run.problem?.lines, ['running setup…'])
+    assert.deepEqual(after?.run.problem, { kind: 'no_agent' })
+    assert.equal((await links.get(WS))?.run.state, 'stalled')
   })
 
-  test('without terminal:read the timing rule still applies, with no lines', async () => {
-    const t = await checkSetup({ run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.terminals[WS] = [{ id: 'term_1' }]
-    t.gateway.readError = Object.assign(new Error('capability_denied'), { code: 'capability_denied' })
-    t.clock.advance(STALL_MS)
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'stalled')
-    assert.deepEqual(after?.run.problem?.lines, [])
-  })
-
-  test('a working run whose terminal was closed becomes stalled (no_terminal)', async () => {
-    const t = await checkSetup({ run: { state: 'working', since: 1_000, sawWorking: true } })
-    t.gateway.terminals[WS] = []
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'stalled')
-    assert.equal(after?.run.problem?.kind, 'no_terminal')
+  test('an agent open but never working past STALL_MS is agent_idle', async () => {
+    const { watcher, gateway, clock } = await setup([link({ run: { state: 'starting', since: 1_795_186_000_000, sawWorking: false } })])
+    gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'claude', state: 'done' }]
+    clock.advance(STALL_MS + 1)
+    assert.deepEqual((await watcher.check(WS))?.run.problem, { kind: 'agent_idle' })
   })
 
   test('an agent Orca lists wins: a missed state is synced and the problem cleared', async () => {
-    const t = await checkSetup({ run: { state: 'stalled', since: 1_000, sawWorking: false, problem: { kind: 'no_agent', lines: [] } } })
-    t.gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'gemini', state: 'working' }]
-    const after = await t.watcher.check(WS)
+    const { watcher, gateway } = await setup([link({ run: { state: 'stalled', since: 1, sawWorking: false, problem: { kind: 'no_agent' } } })])
+    gateway.agents[WS] = [{ terminalId: 'term_9', agent: 'claude', state: 'working' }]
+    const after = await watcher.check(WS)
     assert.equal(after?.run.state, 'working')
     assert.equal(after?.run.problem, undefined)
-    assert.equal(t.health.gemini, false)
-  })
-
-  test('a link made before terminalId was kept finds its only terminal', async () => {
-    const t = await checkSetup({ terminalId: undefined, run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.terminals[WS] = [{ id: 'term_9', title: 'Terminal 1' }]
-    t.gateway.output.term_9 = missing
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'failed')
     assert.equal(after?.terminalId, 'term_9')
   })
 
-  test('"command not found" after the agent worked is not a failed start', async () => {
-    const t = await checkSetup({ run: { state: 'working', since: 1_000, sawWorking: true } })
-    t.gateway.terminals[WS] = [{ id: 'term_1' }]
-    t.gateway.output.term_1 = missing
-    t.gateway.agents[WS] = []
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'stalled')
-  })
-
-  test('done runs and unlinked workspaces are left alone', async () => {
-    const t = await checkSetup({ run: { state: 'done', since: 1_000, sawWorking: true } })
-    assert.equal((await t.watcher.check(WS))?.run.state, 'done')
-    assert.equal(await t.watcher.check('identity:wt2:local:other'), null)
-  })
-
-  test('checkAll checks every run not done; a later agent event moves a failed run on', async () => {
-    const t = await checkSetup({ run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.terminals[WS] = [{ id: 'term_1' }]
-    t.gateway.output.term_1 = missing
-    const all = await t.watcher.checkAll()
-    assert.equal(all[0]?.run.state, 'failed')
-    await t.watcher.onAgentStatus(ev('working'))
-    assert.equal((await t.links.get(WS))?.run.state, 'working')
-  })
-
-  test('relaunch resets the run in the same workspace and schedules checks', async () => {
-    const t = await checkSetup({ run: { state: 'failed', since: 1_000, sawWorking: false, problem: { kind: 'agent_missing', lines: ['x'] } } })
-    const after = await t.watcher.relaunch(WS, 'claude', async () => ({ terminalId: 'term_2' }))
-    assert.equal(after.agent, 'claude')
-    assert.equal(after.terminalId, 'term_2')
-    assert.deepEqual(after.run, { state: 'starting', since: 1_000, sawWorking: false })
-    assert.ok(t.scheduled.length > 0)
-  })
-
-  test('relaunch of an unlinked workspace is not_found and launches nothing', async () => {
-    const t = await checkSetup()
-    let launched = false
-    await assert.rejects(t.watcher.relaunch('identity:wt2:local:gone', 'claude', async () => { launched = true; return { terminalId: 't' } }))
-    assert.equal(launched, false)
-  })
-
-  test('forget removes the link and posts link.removed', async () => {
-    const t = await checkSetup()
-    await t.watcher.forget(WS)
-    assert.equal(await t.links.get(WS), null)
-    assert.deepEqual(t.posts.at(-1), { event: 'link.removed', payload: { workspaceId: WS } })
-  })
-
-  test('the launch blip keeps the run starting instead of "finished"', async () => {
-    const t = await checkSetup({ run: { state: 'starting', since: 1_000, sawWorking: false } })
-    await t.watcher.onAgentStatus(ev('done'))
-    assert.equal((await t.links.get(WS))?.run.state, 'starting')
-  })
-
-  test('an agent that is open but never worked becomes stalled (agent_idle) after STALL_MS', async () => {
-    const t = await checkSetup({ run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'gemini', state: 'done' }]
-    t.gateway.output.term_1 = ['╭ Gemini ╮', '> ']
-    assert.equal((await t.watcher.check(WS))?.run.state, 'starting')
-    t.clock.advance(STALL_MS)
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'stalled')
-    assert.equal(after?.run.problem?.kind, 'agent_idle')
-    assert.equal(t.gateway.notifications.length, 0)
-    // Working at last: the problem goes.
-    await t.watcher.onAgentStatus(ev('working'))
-    assert.equal((await t.links.get(WS))?.run.problem, undefined)
-  })
-
-  test('a stalled (no agent) run whose agent now shows up idle goes back to starting', async () => {
-    const t = await checkSetup({ run: { state: 'stalled', since: 1_000, sawWorking: false, problem: { kind: 'no_agent', lines: [] } } })
-    t.gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'gemini', state: 'done' }]
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'starting')
-    assert.equal(after?.run.problem, undefined)
-  })
-
-  test('a stored terminal id that terminal.list names differently falls back to the only terminal', async () => {
-    const t = await checkSetup({ terminalId: 'pty-form-id', run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.terminals[WS] = [{ id: 'term_abc' }]
-    t.gateway.output.term_abc = missing
-    const after = await t.watcher.check(WS)
-    assert.equal(after?.run.state, 'failed')
-    assert.equal(after?.terminalId, 'term_abc')
+  test('checkAll skips done runs; a done run is left alone', async () => {
+    const { watcher, links } = await setup([link({ run: { state: 'done', since: 1, sawWorking: true } })])
+    await watcher.checkAll()
+    assert.equal((await links.get(WS))?.run.state, 'done')
   })
 })
 
-describe('RunWatcher: context reports', () => {
-  async function ctxSetup(initial: Partial<TaskLink> = {}) {
-    const links = new LinkStore(new MemoryKeyValueStore())
-    await links.put(link({ terminalId: 'term_1', taskContext: 'link-and-snapshot', run: { state: 'working', since: 1_000, sawWorking: true }, ...initial }))
-    const gateway = new FakeGateway()
-    const { post, posts } = recordingPoster()
-    const clock = manualClock(1_000)
-    const recorded: { agent: string; access: string }[] = []
-    const scheduled: { work: () => void; ms: number }[] = []
-    const watcher = new RunWatcher({
-      links, gateway, post, clock: clock.now, agentLabel: (a) => a,
-      settings: async () => DEFAULTS,
-      agentContext: { record: async (agent, access) => { recorded.push({ agent, access }) } },
-      schedule: (work, ms) => { scheduled.push({ work, ms }) }
+describe('RunWatcher: first finish', () => {
+  test('onFirstFinish runs once per link and its change is stored and posted', async () => {
+    let calls = 0
+    const { watcher, links, posts } = await setup([link()], {}, async () => {
+      calls++
+      return { status: 'review', note: 'Moved to “review”.', at: 5 }
     })
-    return { links, gateway, posts, watcher, recorded, scheduled }
-  }
-
-  test('the report is stored on the link and learned for the agent, from a 25 s scan after first working', async () => {
-    const t = await ctxSetup({ run: { state: 'starting', since: 1_000, sawWorking: false } })
-    t.gateway.output.term_1 = Array.from({ length: 1900 }, () => 'agent chatter').concat(['CU-CTX=tool'])
-    await t.watcher.onAgentStatus(ev('working'))
-    // A single ~25 s scan was scheduled, not run yet.
-    const scan = t.scheduled.find((s) => s.ms === 25_000)
-    assert.ok(scan)
-    assert.equal((await t.links.get(WS))?.contextReport, undefined)
-    scan!.work()
-    await new Promise((r) => setTimeout(r, 0))
-    const stored = await t.links.get(WS)
-    assert.equal(stored?.contextReport, 'tool')
-    assert.deepEqual(t.recorded, [{ agent: 'claude', access: 'tool' }])
-    assert.equal(t.posts.at(-1)?.event, 'link.changed')
+    for (const s of ['working', 'done', 'working', 'done'] as const) await watcher.onAgentStatus(ev(s))
+    assert.equal(calls, 1)
+    assert.equal((await links.get(WS))?.onDone?.status, 'review')
+    assert.ok(posts.some((p) => p.event === 'link.changed' && (p.payload as TaskLink).onDone?.status === 'review'))
   })
 
-  test('the first real done scans once; a report already stored is not read again', async () => {
-    const t = await ctxSetup({ run: { state: 'working', since: 1_000, sawWorking: true } })
-    t.gateway.output.term_1 = ['ok', 'CU-CTX=none']
-    await t.watcher.onAgentStatus(ev('done'))
-    assert.equal((await t.links.get(WS))?.contextReport, 'none')
-    assert.deepEqual(t.recorded, [{ agent: 'claude', access: 'none' }])
-    t.gateway.output.term_1 = ['CU-CTX=tool']
-    await t.watcher.check(WS)
-    assert.equal((await t.links.get(WS))?.contextReport, 'none')
+  test('a failing transition is logged and the run still finishes', async () => {
+    const { watcher, links, gateway } = await setup([link()], {}, async () => { throw new Error('down') })
+    await watcher.onAgentStatus(ev('working'))
+    await watcher.onAgentStatus(ev('done'))
+    assert.equal((await links.get(WS))?.run.state, 'done')
+    assert.ok(gateway.logs.some((l) => l.includes('done transition failed')))
+    assert.equal(gateway.notifications.length, 1)
   })
 
-  test('check() scans while no report exists, and the last matching line wins', async () => {
-    const t = await ctxSetup({ run: { state: 'working', since: 1_000, sawWorking: true } })
-    t.gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'claude', state: 'working' }]
-    t.gateway.output.term_1 = ['CU-CTX=none', 'loaded the ClickUp tool and read the task', 'CU-CTX=tool', 'continuing work']
-    await t.watcher.check(WS)
-    assert.equal((await t.links.get(WS))?.contextReport, 'tool')
-    assert.deepEqual(t.recorded, [{ agent: 'claude', access: 'tool' }])
-  })
-
-  for (const taskContext of ['snapshot-only', undefined] as const) {
-    test(`${taskContext ?? 'legacy'} links do not scan or learn context reports`, async () => {
-      const t = await ctxSetup({ taskContext })
-      t.gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'claude', state: 'working' }]
-      t.gateway.output.term_1 = ['CU-CTX=tool']
-      let reads = 0
-      const readTerminal = t.gateway.readTerminal.bind(t.gateway)
-      t.gateway.readTerminal = async (terminalId, lines) => {
-        reads++
-        return readTerminal(terminalId, lines)
-      }
-      await t.watcher.check(WS)
-      await t.watcher.onAgentStatus(ev('done'))
-      assert.equal((await t.links.get(WS))?.contextReport, undefined)
-      assert.deepEqual(t.recorded, [])
-      assert.equal(reads, 0)
-    })
-  }
-
-  test('no report in the terminal changes nothing and nothing is learned', async () => {
-    const t = await ctxSetup({ run: { state: 'working', since: 1_000, sawWorking: true } })
-    t.gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'claude', state: 'working' }]
-    t.gateway.output.term_1 = ['the prompt asks me to print CU-CTX but the shell broke it', 'CU-CTX =tool']
-    await t.watcher.check(WS)
-    assert.equal((await t.links.get(WS))?.contextReport, undefined)
-    assert.deepEqual(t.recorded, [])
-  })
-
-  test('a terminal read failure is logged and leaves the link alone', async () => {
-    const t = await ctxSetup({ run: { state: 'working', since: 1_000, sawWorking: true } })
-    t.gateway.agents[WS] = [{ terminalId: 'term_1', agent: 'claude', state: 'working' }]
-    t.gateway.readError = Object.assign(new Error('capability_denied'), { code: 'capability_denied' })
-    await t.watcher.check(WS)
-    assert.equal((await t.links.get(WS))?.contextReport, undefined)
-    assert.ok(t.gateway.logs.some((l) => l.includes('context scan')))
-  })
-
-  test('contextSent updates the mode and clears the report, even after the agent worked', async () => {
-    const t = await ctxSetup({ taskContext: 'link-only', contextReport: 'none' })
-    const after = await t.watcher.contextSent(WS, 'snapshot-only')
-    assert.equal(after?.taskContext, 'snapshot-only')
-    assert.equal(after?.contextReport, undefined)
-    const stored = await t.links.get(WS)
-    assert.equal(stored?.taskContext, 'snapshot-only')
-    assert.equal(t.posts.at(-1)?.event, 'link.changed')
-    // Sending the same mode again with no report is a no-op write.
-    t.posts.length = 0
-    await t.watcher.contextSent(WS, 'snapshot-only')
-    assert.equal(t.posts.length, 0)
-    assert.equal(await t.watcher.contextSent('identity:wt2:local:gone', 'snapshot-only'), null)
+  test('recordStart stores the start change through the queue', async () => {
+    const { watcher, links } = await setup()
+    await watcher.recordStart(WS, { status: 'in progress', note: 'Moved.', at: 2 })
+    assert.equal((await links.get(WS))?.onStart?.status, 'in progress')
+    assert.equal(await watcher.recordStart('identity:wt2:local:none', { status: null, note: '', at: 2 }), null)
   })
 })

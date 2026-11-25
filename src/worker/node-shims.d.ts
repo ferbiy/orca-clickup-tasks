@@ -25,6 +25,11 @@ declare module 'node:http' {
     on(event: 'error', listener: (error: Error) => void): this
   }
   export function createServer(handler: (req: IncomingMessage, res: ServerResponse) => void): Server
+  /** Test-only use (a request with a forged Host header, which fetch cannot send). */
+  export function request(
+    options: { host: string; port: number; path: string; method: string; headers: Record<string, string> },
+    callback: (res: { statusCode?: number; resume(): void }) => void
+  ): { end(): void; on(event: 'error', listener: (error: Error) => void): void }
 }
 
 declare const process: { platform: string }

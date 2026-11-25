@@ -1,32 +1,23 @@
-// Start form: pick project, agent, base branch and task context, then create the worktree and
-// launch the agent.
+// Start form: pick project (this computer or a paired Orca server), agent, base branch and task
+// context, then create the worktree with the agent and its first prompt.
 import { Button, Callout, Checkbox, Code, Collapsible, Input, Row, Select, Spinner, Stack, Text, read } from 'orca'
-import type { AgentChoice, TaskContextMode } from '../../shared/model'
+import type { TaskContextMode } from '../../shared/model'
 import * as api from '../api'
 import * as s from '../state'
 
 const CONTEXT_OPTIONS: { value: TaskContextMode; label: string }[] = [
-  { value: 'auto', label: 'Auto' },
   { value: 'link-and-snapshot', label: 'Link + snapshot' },
-  { value: 'link-only', label: 'Link only' },
-  { value: 'snapshot-only', label: 'Snapshot only' }
+  { value: 'snapshot-only', label: 'Snapshot only' },
+  { value: 'link-only', label: 'Link only (agent reads ClickUp itself)' }
 ]
-
-/** The agent Select label: the plain name plus the known marks, in one parenthesis. */
-function agentOptionLabel(a: AgentChoice): string {
-  const marks = [a.missing ? 'not found last time' : '', a.clickUp === 'tool' ? 'reads ClickUp' : ''].filter((m) => m !== '')
-  return marks.length > 0 ? `${a.label} (${marks.join(' · ')})` : a.label
-}
 
 export function StartForm() {
   const options = read(s.detail)?.options
   const form = read(s.startForm)
   const busy = read(s.busy)
-  if (!options) return null
-  const chosen = options.agents.find((a) => a.id === form.agent)
-  const agent = chosen?.label ?? form.agent
-  const autoHint =
-    chosen?.clickUp === 'tool' ? `Auto: link only (${agent} read ClickUp itself last time)` : 'Auto: link + snapshot'
+  const settings = read(s.detail)
+  if (!options || !settings) return null
+  const multiHost = new Set(options.projects.map((p) => p.hostId)).size > 1
   return (
     <Stack gap="sm">
       {options.projects.length === 0 ? (
@@ -34,41 +25,32 @@ export function StartForm() {
       ) : (
         <Select
           label="Project"
-          value={form.projectId}
-          options={options.projects.map((p) => ({ value: p.id, label: p.name }))}
-          onChange={(projectId) => api.patchStartForm({ projectId })}
+          value={form.projectKey}
+          options={options.projects.map((p) => ({
+            value: s.projectKey(p),
+            label: multiHost || p.hostId !== 'local' ? `${p.name} (${p.hostLabel})` : p.name
+          }))}
+          onChange={(projectKey) => api.patchStartForm({ projectKey })}
         />
       )}
       <Select
         label="Agent"
         value={form.agent}
-        options={options.agents.map((a) => ({ value: a.id, label: agentOptionLabel(a) }))}
+        options={options.agents.map((a) => ({ value: a.id, label: a.label }))}
         onChange={(value) => api.patchStartForm({ agent: value })}
       />
-      {chosen?.missing ? (
-        <Callout tone="warning">
-          {agent}'s command was not found the last time it was started here. Install it first, or pick another agent.
-        </Callout>
-      ) : null}
       <Input
         label="Base branch"
         placeholder="project default"
         value={form.baseBranch}
         onChange={(baseBranch) => api.patchStartForm({ baseBranch })}
       />
-      <Stack gap="xs">
-        <Select
-          label="Task context"
-          value={form.taskContext}
-          options={CONTEXT_OPTIONS}
-          onChange={(taskContext) => api.patchStartForm({ taskContext: taskContext as TaskContextMode })}
-        />
-        {form.taskContext === 'auto' ? (
-          <Text size="xs" muted>
-            {autoHint}
-          </Text>
-        ) : null}
-      </Stack>
+      <Select
+        label="Task context"
+        value={form.taskContext}
+        options={CONTEXT_OPTIONS}
+        onChange={(taskContext) => api.patchStartForm({ taskContext: taskContext as TaskContextMode })}
+      />
       <Stack gap="xs">
         <Text size="xs" muted>
           Branch
@@ -78,18 +60,24 @@ export function StartForm() {
       {options.inProgressStatus !== null ? (
         <Checkbox
           label={`Move task to “${options.inProgressStatus}” on start`}
+          description={options.inProgressWhy}
           checked={form.moveToInProgress}
           onChange={(moveToInProgress) => api.patchStartForm({ moveToInProgress })}
         />
-      ) : null}
+      ) : (
+        <Text size="xs" muted>
+          {options.inProgressWhy}
+        </Text>
+      )}
       <Collapsible title="Prompt sent to the agent">
         <Text size="xs" muted>
-          The task link first; a snapshot (title, description, checklists, subtasks, fields, attachments, comments) follows
-          unless {agent} reads ClickUp itself. Task text is fenced as data, not instructions.
+          The task id and link, then (unless “Link only”) a snapshot: title, description, checklists, subtasks, fields,
+          attachments and recent comments. Everything copied from ClickUp sits inside a random fence and is marked as data,
+          not instructions.
         </Text>
       </Collapsible>
       <Row gap="sm" align="center">
-        <Button variant="solid" icon="play" disabled={busy !== null || !form.projectId} onPress={() => void api.startTask()}>
+        <Button variant="solid" icon="play" disabled={busy !== null || !form.projectKey} onPress={() => void api.startTask()}>
           Start in worktree
         </Button>
         {busy ? <Spinner label={busy} /> : null}

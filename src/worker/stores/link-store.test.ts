@@ -60,17 +60,31 @@ describe('LinkStore', () => {
   })
 })
 
-describe('LinkStore: stalled and failed runs', () => {
-  test('keeps terminalId and a run problem; drops a link with a malformed problem', async () => {
+describe('LinkStore: stalled runs and upstream links', () => {
+  test('keeps terminalId, a run problem and status changes; drops a link with a malformed problem', async () => {
     const kv = new MemoryKeyValueStore()
     const s = new LinkStore(kv)
-    const failed: TaskLink = {
-      ...link('w1', 1), terminalId: 'term_1',
-      run: { state: 'failed', since: 1, sawWorking: false, problem: { kind: 'agent_missing', lines: ['zsh: command not found: gemini'] } }
+    const stalled: TaskLink = {
+      ...link('w1', 1), terminalId: 'term_1', hostId: 'runtime:env',
+      onStart: { status: 'in progress', note: 'Moved.', at: 1 },
+      run: { state: 'stalled', since: 1, sawWorking: false, problem: { kind: 'no_agent' } }
     }
-    await s.put(failed)
-    assert.deepEqual(await s.get('w1'), failed)
-    await kv.set('links', [{ ...failed, run: { ...failed.run, problem: { kind: 'weird', lines: [] } } }] as never)
+    await s.put(stalled)
+    assert.deepEqual(await s.get('w1'), stalled)
+    await kv.set('links', [{ ...stalled, onDone: { status: 5 } }] as never)
     assert.equal(await s.get('w1'), null)
+  })
+
+  test('a link the upstream plugin wrote (failed, terminal lines, report) reads as stalled without them', async () => {
+    const kv = new MemoryKeyValueStore()
+    const s = new LinkStore(kv)
+    await kv.set('links', [{
+      ...link('w1', 1), contextReport: 'tool',
+      run: { state: 'failed', since: 1, sawWorking: false, problem: { kind: 'agent_missing', lines: ['zsh: command not found: gemini'] } }
+    }] as never)
+    const read = await s.get('w1')
+    assert.equal(read?.run.state, 'stalled')
+    assert.deepEqual(read?.run.problem, { kind: 'no_agent' })
+    assert.equal('contextReport' in (read ?? {}), false)
   })
 })

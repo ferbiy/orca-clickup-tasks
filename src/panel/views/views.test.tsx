@@ -2,16 +2,20 @@
 import { assert, describe, mockHost, mount, test } from 'orca/testing'
 import * as panel from '../../panel'
 import { checkChildren, checkComments, checkSpaces, checkTasks } from '../check-fixtures'
-import type { AuthState, StartOptions, StatusOption, TaskDetail, TaskLink } from '../../shared/model'
+import type { AuthState, ListStatusMapping, Scope, StartOptions, StatusOption, TaskDetail, TaskLink } from '../../shared/model'
 
 const connected: AuthState = {
   connected: true,
   user: { id: 'u1', name: 'Linh' },
   teams: [{ id: 't1', name: 'Acme' }],
   teamId: 't1',
+  method: 'oauth',
+  oauth: { clientId: 'CLIENTID123', redirectUri: 'http://127.0.0.1:47386/callback', pending: null },
   secretProtection: 'os-keyring'
 }
-const disconnected: AuthState = { ...connected, connected: false, user: null, teams: [], teamId: null }
+const disconnected: AuthState = { ...connected, connected: false, method: null, user: null, teams: [], teamId: null }
+const noApp: AuthState = { ...disconnected, oauth: { clientId: null, redirectUri: 'http://127.0.0.1:47386/callback', pending: null } }
+const allSpaces: Scope = { spaces: ['sp1', 'sp2', 's1'], folders: [], lists: [] }
 
 const detail: TaskDetail = {
   ...checkTasks[2]!,
@@ -29,12 +33,16 @@ const detail: TaskDetail = {
   customFields: []
 }
 const options: StartOptions = {
-  projects: [{ id: 'p1', name: 'billing', hostId: 'local' }, { id: 'p2', name: 'web', hostId: 'local' }],
+  projects: [
+    { id: 'p1', name: 'billing', hostId: 'local', hostLabel: 'this computer' },
+    { id: 'p2', name: 'web', hostId: 'runtime:env', hostLabel: 'Orca server' }
+  ],
   suggestedProjectId: 'p1',
   agents: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }],
   workspaceName: 'CU-86c1x2a-Migrate-billing-webhooks-to-v2',
   inProgressStatus: 'in progress',
-  defaults: { agent: 'claude', moveToInProgress: true, baseBranch: '', taskContext: 'auto' }
+  inProgressWhy: "Automatic, from this List's status types.",
+  defaults: { agent: 'claude', moveToInProgress: true, baseBranch: '', taskContext: 'link-and-snapshot' }
 }
 const statuses: StatusOption[] = [
   { name: 'to do', type: 'open', order: 0 },
@@ -46,11 +54,23 @@ const link = (state: TaskLink['run']['state']): TaskLink => ({
   branch: 'CU-86c1x2a-Migrate', agent: 'claude', createdAt: 1, run: { state, since: Date.now(), sawWorking: true }
 })
 const ok = <T,>(value: T) => ({ ok: true, value })
+const mapping: ListStatusMapping = {
+  listId: 'L-api',
+  statuses: [
+    { name: 'to do', type: 'open', order: 0 },
+    { name: 'in progress', type: 'custom', order: 1 },
+    { name: 'review', type: 'custom', order: 2 }
+  ],
+  start: { override: { mode: 'auto' }, resolved: { status: 'in progress', source: 'auto', why: 'Automatic.' } },
+  done: { override: { mode: 'auto' }, resolved: { status: 'review', source: 'auto', why: 'Automatic.' } }
+}
 
 function requests(extra: Record<string, unknown> = {}) {
   return {
     'auth.state': ok(connected),
-    'tasks.list': ok({ tasks: checkTasks, fetchedAt: Date.now(), stale: false }),
+    'tasks.list': ok({ tasks: checkTasks, fetchedAt: Date.now(), stale: false, scopeEmpty: false }),
+    'scope.get': ok(allSpaces),
+    'lists.mapping': ok(mapping),
     'links.list': ok([]),
     'tasks.get': ok(detail),
     'start.options': ok(options),
@@ -63,12 +83,13 @@ const callsOf = (host: { calls: readonly { method: string; params: unknown }[] }
   host.calls.filter((c) => c.method === 'plugin.request' && JSON.stringify(c.params).includes(`"${name}"`))
 
 describe('panel views', () => {
-  test('connect: types a token and calls auth.connect', async () => {
+  test('connect: the personal-token fallback types a token and calls auth.connect', async () => {
     const host = mockHost({ requests: requests({ 'auth.state': ok(disconnected), 'auth.connect': ok(connected) }) })
     const view = await mount(panel, { host })
     assert.ok(view.summary().join('\n').includes('Connect ClickUp'))
+    await view.toggle({ type: 'Collapsible', label: 'Use a personal API token instead' } as never)
     await view.type({ label: 'Personal API token' } as never, 'pk_abc')
-    await view.press({ text: 'Connect' } as never)
+    await view.press({ text: 'Connect with token' } as never)
     assert.equal(callsOf(host, 'auth.connect').length, 1)
     assert.ok(JSON.stringify(callsOf(host, 'auth.connect')[0]).includes('pk_abc'))
     assert.deepEqual([...view.errors], [])
@@ -83,9 +104,56 @@ describe('panel views', () => {
       })
     })
     const view = await mount(panel, { host })
+    await view.toggle({ type: 'Collapsible', label: 'Use a personal API token instead' } as never)
     await view.type({ label: 'Personal API token' } as never, 'bad')
-    await view.press({ text: 'Connect' } as never)
-    assert.ok(JSON.stringify(view.tree()).includes('ClickUp refused the token'))
+    await view.press({ text: 'Connect with token' } as never)
+    assert.ok(JSON.stringify(view.tree()).includes('ClickUp no longer accepts this sign-in'))
+  })
+
+  test('oauth: no app saved shows the app form; saving sends the secret once and clears it', async () => {
+    const host = mockHost({ requests: requests({ 'auth.state': ok(noApp), 'auth.oauthSaveApp': ok(disconnected) }) })
+    const view = await mount(panel, { host })
+    await view.type({ label: 'Client ID' } as never, 'CLIENTID123')
+    await view.type({ label: 'Client secret' } as never, 'S3CRET')
+    await view.press({ text: 'Save app' } as never)
+    const save = callsOf(host, 'auth.oauthSaveApp')
+    assert.equal(save.length, 1)
+    assert.ok(JSON.stringify(save[0]).includes('S3CRET'))
+    assert.ok(!JSON.stringify(view.tree()).includes('S3CRET'))
+    assert.ok(JSON.stringify(view.tree()).includes('Sign in with ClickUp'))
+    assert.deepEqual([...view.errors], [])
+  })
+
+  test('oauth: sign in prepares, opens ClickUp from a press, and finishes from a pasted address', async () => {
+    const pending: AuthState = {
+      ...disconnected,
+      oauth: {
+        ...disconnected.oauth,
+        pending: { authorizeUrl: 'https://app.clickup.com/api?client_id=CLIENTID123&state=abc', expiresAt: Date.now() + 600_000, listening: false }
+      }
+    }
+    const host = mockHost({
+      requests: requests({ 'auth.state': ok(disconnected), 'auth.oauthBegin': ok(pending), 'auth.oauthPaste': ok(connected) }),
+      results: { 'shell.openExternal': { opened: true } }
+    })
+    const view = await mount(panel, { host })
+    await view.press({ text: 'Sign in with ClickUp' } as never)
+    let text = JSON.stringify(view.tree())
+    assert.ok(text.includes('cannot receive the redirect here'))
+    await view.press({ text: 'Open ClickUp to allow access' } as never)
+    assert.equal(host.callsOf('shell.openExternal').length, 1)
+    await view.type({ label: 'Address your browser ended on' } as never, 'http://127.0.0.1:47386/callback?code=c&state=abc')
+    await view.press({ text: 'Finish sign-in' } as never)
+    assert.equal(callsOf(host, 'auth.oauthPaste').length, 1)
+    text = JSON.stringify(view.tree())
+    assert.ok(text.includes('My tasks'))
+    assert.deepEqual([...view.refusals], [])
+  })
+
+  test('list: no Lists chosen shows the empty state with a way to choose', async () => {
+    const host = mockHost({ requests: requests({ 'tasks.list': ok({ tasks: [], fetchedAt: Date.now(), stale: false, scopeEmpty: true }) }) })
+    const view = await mount(panel, { host })
+    assert.ok(JSON.stringify(view.tree()).includes('Choose your Lists'))
   })
 
   test('list: groups, filters by search', async () => {
@@ -209,46 +277,34 @@ describe('panel views', () => {
     assert.deepEqual([...view.warnings], [])
   })
 
-  test('detail: the Task context select sends taskContext and the Auto hint names the reader', async () => {
-    const opts: StartOptions = {
-      ...options,
-      agents: [
-        { id: 'claude', label: 'Claude', clickUp: 'tool' },
-        { id: 'codex', label: 'Codex' }
-      ]
-    }
-    const host = mockHost({ requests: requests({ 'start.options': ok(opts), 'start.run': ok(link('starting')) }) })
+  test('detail: start sends the chosen project with its host and the task context', async () => {
+    const host = mockHost({ requests: requests({ 'start.run': ok(link('starting')) }) })
     const view = await mount(panel, { host })
     await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
     const text = JSON.stringify(view.tree())
-    assert.ok(text.includes('Task context'))
-    assert.ok(text.includes('Claude (reads ClickUp)'), text)
-    assert.ok(text.includes('Auto: link only (Claude read ClickUp itself last time)'))
+    assert.ok(text.includes('web (Orca server)'))
+    await view.select({ label: 'Project' } as never, 'runtime:env::p2')
     await view.select({ label: 'Task context' } as never, 'snapshot-only')
-    assert.ok(!JSON.stringify(view.tree()).includes('Auto: link only'))
     await view.press({ text: 'Start in worktree' } as never)
-    assert.ok(JSON.stringify(callsOf(host, 'start.run')[0]).includes('"taskContext":"snapshot-only"'))
+    const sent = JSON.stringify(callsOf(host, 'start.run')[0])
+    assert.ok(sent.includes('"taskContext":"snapshot-only"'))
+    assert.ok(sent.includes('"projectId":"p2"') && sent.includes('"hostId":"runtime:env"'))
     assert.deepEqual([...view.errors], [])
     assert.deepEqual([...view.warnings], [])
   })
 
-  test('run card: link-only + report none warns and "Send the task details" sends snapshot-only', async () => {
-    const warned: TaskLink = { ...link('working'), taskContext: 'link-only', contextReport: 'none' }
-    const sent: TaskLink = { ...link('working'), taskContext: 'snapshot-only' }
-    const host = mockHost({ requests: requests({ 'runs.sendPrompt': ok(sent) }) })
+  test('run card: shows what the plugin did to the status', async () => {
+    const done: TaskLink = {
+      ...link('done'),
+      onStart: { status: 'in progress', note: 'Moved to “in progress”. Comment posted.', at: 1 },
+      onDone: { status: null, note: 'Left as “blocked”: it was changed in ClickUp after the start.', at: 2 }
+    }
+    const host = mockHost({ requests: requests({ 'links.list': ok([done]) }) })
     const view = await mount(panel, { host })
     await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
-    await view.post('link.changed', warned)
-    let text = JSON.stringify(view.tree())
-    assert.ok(text.includes('could not read the task from ClickUp'))
-    await view.press({ text: 'Send the task details' } as never)
-    const calls = callsOf(host, 'runs.sendPrompt')
-    assert.equal(calls.length, 1)
-    assert.ok(JSON.stringify(calls[0]).includes('"taskContext":"snapshot-only"'))
-    text = JSON.stringify(view.tree())
-    assert.ok(!text.includes('could not read the task from ClickUp'))
-    assert.deepEqual([...view.errors], [])
-    assert.deepEqual([...view.warnings], [])
+    const text = JSON.stringify(view.tree())
+    assert.ok(text.includes('On start: Moved to “in progress”'))
+    assert.ok(text.includes('When done: Left as “blocked”'))
   })
 
   test('tabs: switching to Browse loads the Spaces once and remembers the tab', async () => {
@@ -519,52 +575,13 @@ describe('panel views', () => {
     assert.ok(JSON.stringify(view.tree()).includes('My tasks'))
   })
 
-  test('a failed run shows the error, retries with another agent in place, or stops tracking', async () => {
-    const failed: TaskLink = {
-      ...link('failed'), agent: 'claude', terminalId: 'term_1',
-      run: { state: 'failed', since: Date.now(), sawWorking: false, problem: { kind: 'agent_missing', lines: ['zsh: command not found: claude'] } }
-    }
-    const missingOptions = { ...options, agents: [{ id: 'claude', label: 'Claude', missing: true }, { id: 'codex', label: 'Codex' }] }
-    const restarted: TaskLink = { ...failed, agent: 'codex', terminalId: 'term_2', run: { state: 'starting', since: Date.now(), sawWorking: false } }
-    const host = mockHost({
-      requests: requests({
-        'links.list': ok([failed]),
-        'runs.check': ok([failed]),
-        'start.options': ok(missingOptions),
-        'runs.retry': ok(restarted),
-        'runs.forget': ok({ ok: true })
-      })
-    })
-    const view = await mount(panel, { host })
-    await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
-    let text = JSON.stringify(view.tree())
-    assert.ok(text.includes('Claude could not start'))
-    assert.ok(text.includes('zsh: command not found: claude'))
-    assert.ok(text.includes('Claude (not found last time)'))
-    await view.press({ text: 'Retry in this worktree' } as never)
-    const retry = callsOf(host, 'runs.retry')
-    assert.equal(retry.length, 1)
-    assert.ok(JSON.stringify(retry[0]).includes('"agent":"codex"') && JSON.stringify(retry[0]).includes('"workspaceId":"w1"'))
-    text = JSON.stringify(view.tree())
-    assert.ok(text.includes('Starting Codex'))
-    assert.ok(text.includes('Agent not starting?'))
-
-    await view.post('link.changed', failed)
-    await view.press({ text: 'Stop tracking' } as never)
-    assert.equal(callsOf(host, 'runs.forget').length, 1)
-    assert.ok(JSON.stringify(view.tree()).includes('Start in worktree'))
-    assert.deepEqual([...view.errors], [])
-    assert.deepEqual([...view.warnings], [])
-  })
-
-  test('an idle agent shows its task prompt on demand', async () => {
+  test('a stalled run explains, shows its task prompt on demand, and can stop tracking', async () => {
     const idle: TaskLink = {
       ...link('stalled'), terminalId: 'term_1',
-      run: { state: 'stalled', since: Date.now(), sawWorking: false, problem: { kind: 'agent_idle', lines: ['> '] } }
+      run: { state: 'stalled', since: Date.now(), sawWorking: false, problem: { kind: 'agent_idle' } }
     }
     const host = mockHost({
-      requests: requests({ 'links.list': ok([idle]), 'runs.check': ok([idle]), 'runs.prompt': ok({ text: 'TASK PROMPT BODY' }),
-        'runs.sendPrompt': ok({ ...idle, run: { state: 'starting', since: Date.now(), sawWorking: false } }) })
+      requests: requests({ 'links.list': ok([idle]), 'runs.check': ok([idle]), 'runs.prompt': ok({ text: 'TASK PROMPT BODY' }), 'runs.forget': ok({ ok: true }) })
     })
     const view = await mount(panel, { host })
     await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
@@ -572,9 +589,9 @@ describe('panel views', () => {
     await view.toggle({ type: 'Collapsible', label: 'Task prompt' } as never)
     assert.equal(callsOf(host, 'runs.prompt').length, 1)
     assert.ok(JSON.stringify(view.tree()).includes('TASK PROMPT BODY'))
-    await view.press({ text: 'Send the task prompt' } as never)
-    assert.equal(callsOf(host, 'runs.sendPrompt').length, 1)
-    assert.ok(JSON.stringify(view.tree()).includes('Starting Claude'))
+    await view.press({ text: 'Stop tracking' } as never)
+    assert.equal(callsOf(host, 'runs.forget').length, 1)
+    assert.ok(JSON.stringify(view.tree()).includes('Start in worktree'))
     assert.deepEqual([...view.errors], [])
   })
 })

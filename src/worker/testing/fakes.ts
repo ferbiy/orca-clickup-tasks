@@ -76,7 +76,10 @@ export class FakeTracker implements TaskTracker {
 
   async verify() { this.record('verify', []); return this.user }
   async listTeams() { this.record('listTeams', []); return this.teams }
-  async listMyTasks(teamId: string, userId: string) { this.record('listMyTasks', [teamId, userId]); return this.tasks }
+  async listMyTasks(teamId: string, userId: string, options: { listIds: readonly string[] }) {
+    this.record('listMyTasks', [teamId, userId, [...options.listIds]])
+    return this.tasks
+  }
   async getTask(taskId: string) { this.record('getTask', [taskId]); return this.detail }
   async listStatuses(listId: string) { this.record('listStatuses', [listId]); return this.statuses }
   async setStatus(taskId: string, status: string) { this.record('setStatus', [taskId, status]) }
@@ -111,11 +114,12 @@ export class FakeGateway implements OrcaGateway {
     { id: 'p-web', name: 'web-app', kind: 'git', hostId: 'local', hidden: false },
     { id: 'p-api', name: 'billing-service', kind: 'git', hostId: 'local', hidden: false },
     { id: 'p-notes', name: 'notes', kind: 'folder', hostId: 'local', hidden: false },
-    { id: 'p-ssh', name: 'remote', kind: 'git', hostId: 'ssh:box', hidden: false }
+    { id: 'p-ssh', name: 'remote', kind: 'git', hostId: 'ssh:box', hidden: false },
+    { id: 'p-srv', name: 'server-app', kind: 'git', hostId: 'runtime:env-1', hidden: false },
+    { id: 'p-hidden', name: 'old', kind: 'git', hostId: 'local', hidden: true }
   ]
   workspaces: OrcaWorkspace[] = []
   created: Parameters<OrcaGateway['createWorkspace']>[0][] = []
-  opened: string[] = []
   notifications: { title: string; body?: string }[] = []
   logs: string[] = []
   createError: Error | null = null
@@ -129,49 +133,10 @@ export class FakeGateway implements OrcaGateway {
     this.workspaces.push({ id: this.nextWorkspaceId, projectId: params.projectId, name: params.name, branch: params.name })
     return { workspaceId: this.nextWorkspaceId, terminalId: 'term_1' }
   }
-  async openWorkspace(workspaceId: string) { this.opened.push(workspaceId) }
-
   /** agents.list answers, by workspace id; a missing key answers []. */
   agents: Record<string, OrcaAgent[]> = {}
-  /** terminal.list answers, by workspace id. */
-  terminals: Record<string, { id: string; title?: string }[]> = {}
-  /** terminal.read answers, by terminal id; a missing key rejects (terminal gone). */
-  output: Record<string, string[]> = {}
-  /** Set to make terminal.read reject as Orca does without `terminal:read`. */
-  readError: Error | null = null
-  launched: { workspaceId: string; agent: string }[] = []
-  /** terminal.sendText calls, in order. */
-  sent: { terminalId: string; text: string }[] = []
-  /** Rejections for the next sendText calls, consumed in order. */
-  sendErrors: Error[] = []
-  sendAccepted = true
-  /** Agents that appear in agents.list once launched (the terminal id it runs in). */
-  agentAppearsOnLaunch = true
-  launchError: Error | null = null
-  nextTerminalId = 'term_2'
 
-  async launchAgent(params: { workspaceId: string; agent: string }) {
-    if (this.launchError) throw this.launchError
-    this.launched.push(params)
-    if (this.agentAppearsOnLaunch) {
-      this.agents[params.workspaceId] = [{ terminalId: this.nextTerminalId, agent: params.agent, state: 'done' }]
-    }
-    return { terminalId: this.nextTerminalId }
-  }
-  async sendText(terminalId: string, text: string) {
-    const error = this.sendErrors.shift()
-    if (error) throw error
-    this.sent.push({ terminalId, text })
-    return this.sendAccepted
-  }
   async listAgents(workspaceId: string) { return this.agents[workspaceId] ?? [] }
-  async listTerminals(workspaceId: string) { return this.terminals[workspaceId] ?? [] }
-  async readTerminal(terminalId: string, maxLines: number) {
-    if (this.readError) throw this.readError
-    const lines = this.output[terminalId]
-    if (!lines) throw new Error(`terminal ${terminalId} not found`)
-    return lines.slice(-maxLines)
-  }
   async notify(params: { title: string; body?: string }) { this.notifications.push(params) }
   log(message: string) { this.logs.push(message) }
 }

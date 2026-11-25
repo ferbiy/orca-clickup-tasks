@@ -149,16 +149,21 @@ function Mapping(props: { mapping: ListStatusMapping }) {
 function chosenLists(scope: Scope): { id: string; name: string; where: string }[] {
   const tree = read(s.browseTree)
   const out: { id: string; name: string; where: string }[] = []
+  const seen = new Set<string>()
+  const add = (entry: { id: string; name: string; where: string }) => {
+    if (!seen.has(entry.id)) out.push(entry)
+    seen.add(entry.id)
+  }
   for (const space of tree.spaces ?? []) {
     const kids = tree.children[space.id]
     if (!kids) continue
     for (const folder of kids.folders) {
       for (const list of folder.lists) {
-        if (s.listInScope(scope, space.id, folder.id, list.id)) out.push({ id: list.id, name: list.name, where: `${space.name} › ${folder.name}` })
+        if (s.listInScope(scope, space.id, folder.id, list.id)) add({ id: list.id, name: list.name, where: `${space.name} › ${folder.name}` })
       }
     }
     for (const list of kids.lists) {
-      if (s.listInScope(scope, space.id, null, list.id)) out.push({ id: list.id, name: list.name, where: space.name })
+      if (s.listInScope(scope, space.id, null, list.id)) add({ id: list.id, name: list.name, where: space.name })
     }
   }
   return out

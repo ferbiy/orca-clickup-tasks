@@ -7,8 +7,8 @@ describe('PrefsStore', () => {
     const kv = new MemoryKeyValueStore()
     const p = new PrefsStore(kv)
     assert.deepEqual(await p.settings(), {
-      defaultAgent: 'claude', moveToInProgress: true, defaultBaseBranch: '', notifyOnDone: true, notifyOnNeedsInput: false,
-      taskContext: 'auto'
+      defaultAgent: 'claude', moveToInProgress: true, commentOnStart: true, moveOnDone: true, defaultBaseBranch: '',
+      notifyOnDone: true, notifyOnNeedsInput: false, taskContext: 'link-and-snapshot'
     })
     const next = await p.updateSettings({ defaultAgent: 'codex', notifyOnNeedsInput: true })
     assert.equal(next.defaultAgent, 'codex')
@@ -83,54 +83,48 @@ describe('PrefsStore', () => {
   })
 })
 
-describe('PrefsStore: missing agents', () => {
-  test('set, clear and corrupt values', async () => {
+describe('PrefsStore: task context, scope and status overrides', () => {
+  test('taskContext defaults to link-and-snapshot, a valid value persists, a bad one (or the old auto) reads as the default', async () => {
     const kv = new MemoryKeyValueStore()
     const p = new PrefsStore(kv)
-    assert.deepEqual(await p.missingAgents(), [])
-    await p.setAgentMissing('gemini', true)
-    await p.setAgentMissing('gemini', true)
-    await p.setAgentMissing('codex', true)
-    assert.deepEqual(await p.missingAgents(), ['gemini', 'codex'])
-    await p.setAgentMissing('gemini', false)
-    assert.deepEqual(await p.missingAgents(), ['codex'])
-    await kv.set('prefs.missingAgents', [1, 'x'] as never)
-    assert.deepEqual(await p.missingAgents(), ['x'])
-  })
-})
-
-describe('PrefsStore: task context and learned ClickUp access', () => {
-  test('taskContext defaults to auto, a valid value persists, a bad one reads as auto', async () => {
-    const kv = new MemoryKeyValueStore()
-    const p = new PrefsStore(kv)
-    assert.equal((await p.settings()).taskContext, 'auto')
+    assert.equal((await p.settings()).taskContext, 'link-and-snapshot')
     await p.updateSettings({ taskContext: 'snapshot-only' })
     assert.equal((await new PrefsStore(kv).settings()).taskContext, 'snapshot-only')
-    await kv.set('prefs.settings', { taskContext: 'everything' })
-    assert.equal((await p.settings()).taskContext, 'auto')
+    await kv.set('prefs.settings', { taskContext: 'auto' })
+    assert.equal((await p.settings()).taskContext, 'link-and-snapshot')
   })
 
-  test('agentClickUp records the latest report per agent, reads back one or all', async () => {
+  test('commentOnStart and moveOnDone default on', async () => {
     const p = new PrefsStore(new MemoryKeyValueStore())
-    assert.equal(await p.agentClickUp('claude'), null)
-    assert.deepEqual(await p.agentClickUpAll(), {})
-    await p.setAgentClickUp('claude', 'tool', 1)
-    await p.setAgentClickUp('gemini', 'none', 2)
-    await p.setAgentClickUp('claude', 'none', 3)
-    assert.equal(await p.agentClickUp('claude'), 'none')
-    assert.equal(await p.agentClickUp('gemini'), 'none')
-    assert.deepEqual(await p.agentClickUpAll(), { claude: 'none', gemini: 'none' })
+    const s = await p.settings()
+    assert.equal(s.commentOnStart, true)
+    assert.equal(s.moveOnDone, true)
   })
 
-  test('corrupt agentClickUp entries are skipped; forget clears the whole map', async () => {
+  test('scope is per Workspace and empty without one', async () => {
     const kv = new MemoryKeyValueStore()
     const p = new PrefsStore(kv)
-    await kv.set('prefs.agentClickUp', { claude: { access: 'tool', at: 1 }, gemini: { access: 'maybe' }, codex: 7 })
-    assert.equal(await p.agentClickUp('claude'), 'tool')
-    assert.equal(await p.agentClickUp('gemini'), null)
-    assert.deepEqual(await p.agentClickUpAll(), { claude: 'tool' })
-    await p.forgetAgentClickUp()
-    assert.equal(await p.agentClickUp('claude'), null)
-    assert.deepEqual(await p.agentClickUpAll(), {})
+    assert.deepEqual(await p.setScope({ spaces: ['s'], folders: [], lists: [] }), { spaces: [], folders: [], lists: [] })
+    await p.setTeamId('t1')
+    await p.setScope({ spaces: ['s'], folders: [], lists: [{ id: 'L', spaceId: 's' }] })
+    await p.setTeamId('t2')
+    assert.deepEqual(await p.scope(), { spaces: [], folders: [], lists: [] })
+    await p.setTeamId('t1')
+    assert.deepEqual((await p.scope()).lists, [{ id: 'L', spaceId: 's' }])
+  })
+
+  test('status overrides: auto removes, none and a name persist, corrupt reads as auto', async () => {
+    const kv = new MemoryKeyValueStore()
+    const p = new PrefsStore(kv)
+    assert.deepEqual(await p.statusOverride('L1', 'start'), { mode: 'auto' })
+    await p.setStatusOverride('L1', 'start', { mode: 'status', name: 'doing' })
+    await p.setStatusOverride('L1', 'done', { mode: 'none' })
+    assert.deepEqual(await p.statusOverride('L1', 'start'), { mode: 'status', name: 'doing' })
+    assert.deepEqual(await p.statusOverride('L1', 'done'), { mode: 'none' })
+    await p.setStatusOverride('L1', 'start', { mode: 'auto' })
+    await p.setStatusOverride('L1', 'done', { mode: 'auto' })
+    assert.deepEqual(await kv.get('prefs.statusMap'), {})
+    await kv.set('prefs.statusMap', { L1: { start: { mode: 'status', name: '' } } })
+    assert.deepEqual(await p.statusOverride('L1', 'start'), { mode: 'auto' })
   })
 })

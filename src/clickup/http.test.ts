@@ -158,3 +158,32 @@ describe('createClickUpHttp', () => {
     assert.ok(error.message.includes('5 ms'))
   })
 })
+
+describe('createRateGate', () => {
+  test('lets perMinute requests through, then waits, and refuses a wait longer than allowed', async () => {
+    const { createRateGate } = await import('./http')
+    let now = 1_000_000
+    const slept: number[] = []
+    const gate = createRateGate({ perMinute: 2, clock: () => now, sleep: async (ms) => { slept.push(ms); now += ms }, maxWaitMs: 60_000 })
+    await gate.acquire()
+    await gate.acquire()
+    await gate.acquire()
+    assert.deepEqual(slept, [60_000])
+    gate.blockUntil(now + 120_000)
+    await assert.rejects(gate.acquire(), (e: unknown) => (e as { code?: string }).code === 'rate_limited')
+  })
+
+  test('a 429 blocks the gate until ClickUp\'s reset', async () => {
+    const { createClickUpHttp, createRateGate } = await import('./http')
+    let now = 1_000_000
+    const gate = createRateGate({ perMinute: 100, clock: () => now, sleep: async (ms) => { now += ms }, maxWaitMs: 1 })
+    const http = createClickUpHttp({
+      token: 'pk',
+      gate,
+      clock: () => now,
+      fetch: async () => ({ status: 429, headers: { get: () => String(Math.floor(now / 1000) + 30) }, text: async () => '{}' })
+    })
+    await assert.rejects(http.request('GET', '/user'), (e: unknown) => (e as { code?: string }).code === 'rate_limited')
+    await assert.rejects(gate.acquire(), (e: unknown) => (e as { code?: string }).code === 'rate_limited')
+  })
+})

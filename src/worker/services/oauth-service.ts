@@ -141,7 +141,7 @@ export class OAuthService {
     if (!text || text.length > 4096) throw new PluginError('invalid_input', 'Paste the whole address from the browser.')
     let query: URLSearchParams
     try {
-      query = text.includes('?') ? new URL(text).searchParams : new URLSearchParams(text)
+      query = text.startsWith('?') || !text.includes('?') ? new URLSearchParams(text.replace(/^\?/, '')) : new URL(text).searchParams
     } catch {
       throw new PluginError('invalid_input', 'That is not a web address. Paste the whole address from the browser.')
     }

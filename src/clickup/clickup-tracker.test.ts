@@ -54,20 +54,30 @@ describe('createClickUpTracker', () => {
     assert.equal(calls[0].url, `${BASE}/team`)
   })
 
-  test('listMyTasks sends assignees[], include_closed=false, subtasks=true, page=0', async () => {
+  test('listMyTasks sends assignees[], list_ids[], include_closed=false, subtasks=true, page=0', async () => {
     const { tracker, calls } = setup([{ status: 200, body: taskPage([TASK_FULL], true) }])
-    const tasks = await tracker.listMyTasks('9001234', '183')
+    const tasks = await tracker.listMyTasks('9001234', '183', { listIds: ['L1', 'L2'] })
     assert.equal(tasks.length, 1)
     assert.equal(tasks[0].customId, 'ENG-142')
     assert.equal(
       calls[0].url,
-      `${BASE}/team/9001234/task?assignees[]=183&include_closed=false&subtasks=true&page=0`
+      `${BASE}/team/9001234/task?assignees[]=183&list_ids[]=L1&list_ids[]=L2&include_closed=false&subtasks=true&page=0`
     )
+  })
+
+  test('listMyTasks with no List ids sends nothing; many ids go in chunks of 40', async () => {
+    const none = setup([])
+    assert.deepEqual(await none.tracker.listMyTasks('1', '2', { listIds: [] }), [])
+    assert.equal(none.calls.length, 0)
+    const many = setup(() => ({ status: 200, body: taskPage([], true) }))
+    await many.tracker.listMyTasks('1', '2', { listIds: Array.from({ length: 85 }, (_, i) => `L${i}`) })
+    assert.equal(many.calls.length, 3)
+    assert.ok(many.calls[2].url.includes('list_ids[]=L80'))
   })
 
   test('listMyTasks stops on last_page even with a full page', async () => {
     const { tracker, calls } = setup([{ status: 200, body: taskPage(manyTasks(100, 'a'), true) }])
-    assert.equal((await tracker.listMyTasks('1', '2')).length, 100)
+    assert.equal((await tracker.listMyTasks('1', '2', { listIds: ['L'] })).length, 100)
     assert.equal(calls.length, 1)
   })
 
@@ -76,17 +86,17 @@ describe('createClickUpTracker', () => {
       { status: 200, body: taskPage(manyTasks(100, 'a'), false) },
       { status: 200, body: taskPage(manyTasks(40, 'b')) }
     ])
-    assert.equal((await tracker.listMyTasks('1', '2')).length, 140)
+    assert.equal((await tracker.listMyTasks('1', '2', { listIds: ['L'] })).length, 140)
     assert.equal(calls.length, 2)
     assert.ok(calls[1].url.endsWith('page=1'))
   })
 
   test('listMyTasks stops at maxPages (default 5)', async () => {
     const full = setup((url) => ({ status: 200, body: taskPage(manyTasks(100, url.slice(-1)), false) }))
-    assert.equal((await full.tracker.listMyTasks('1', '2')).length, 500)
+    assert.equal((await full.tracker.listMyTasks('1', '2', { listIds: ['L'] })).length, 500)
     assert.equal(full.calls.length, 5)
     const two = setup((url) => ({ status: 200, body: taskPage(manyTasks(100, url.slice(-1)), false) }))
-    await two.tracker.listMyTasks('1', '2', { maxPages: 2 })
+    await two.tracker.listMyTasks('1', '2', { listIds: ['L'], maxPages: 2 })
     assert.equal(two.calls.length, 2)
   })
 

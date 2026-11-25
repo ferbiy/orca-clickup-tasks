@@ -19,6 +19,8 @@ function world() {
   const clock = manualClock()
   const auth = new AuthService({ secrets, kv, prefs, cache, post, trackerFor: () => tracker })
   const tasks = new TaskService({ auth, cache, post, clock: clock.now })
+  // Every List is in scope here: scope rules are tested in services.test.ts.
+  tasks.setScope({ get: async () => ({ spaces: [], folders: [], lists: [] }), isEmpty: () => false, listIds: async () => new Set<string>(), assertList: async () => {} })
   const edit = new EditService({ auth, tasks, cache, post, clock: clock.now })
   return { kv, secrets, tracker, posts, clock, auth, tasks, edit }
 }

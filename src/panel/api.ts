@@ -591,7 +591,7 @@ export async function loadSpaces(refresh: boolean): Promise<void> {
     const spaces = await call('browse.spaces', { refresh })
     if (run !== browseRun) return
     update(s.browseTree, (b) => ({ ...b, spaces, loadingSpaces: false }))
-    loadChosenChildren()
+    if (read(s.activeTab) === 'settings') loadChosenChildren()
     // Spaces left open from the last run need their children again.
     for (const key of read(s.browseExpanded)) {
       if (key.startsWith('space:')) void loadChildren(key.slice(6), refresh)
