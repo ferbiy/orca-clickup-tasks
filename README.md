@@ -7,6 +7,21 @@ with your coding agent, and let the task's status follow the List's own workflow
 Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks) (MIT), based on its
 `feature/start-task` branch after a full audit: see [SECURITY-AUDIT.md](SECURITY-AUDIT.md).
 
+<p align="center">
+  <img src="docs/images/tasks-page-clickup.svg" alt="Mockup of Orca's Tasks page with a ClickUp tab: a task list with coloured status badges and a task detail with Start Claude, Status and an open Send to chat menu" />
+  <br /><sub>The ClickUp tab on Orca's Tasks page. All mockups use placeholder data.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/send-to-chat.svg" alt="Mockup of Send to chat: pick a template, edit the filled-in message, pick an open chat shown as server › workspace › chat, press Send, and the message lands in that Orca chat" />
+  <br /><sub>Send to chat: template, editable message, an open chat, Send.</sub>
+</p>
+
+> [!NOTE]
+> The Tasks page tab and Send to chat need the
+> [Overhedge build of Orca](https://github.com/ferbiy/orca-overhedge) (plugin task sources and
+> plugin chat send). On stock Orca use 0.3.0, which has the sidebar panel only.
+
 ## What it does
 
 - **Sign in with ClickUp (OAuth)**, using your own ClickUp OAuth app. A personal API token still works
