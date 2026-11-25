@@ -8,6 +8,7 @@ import type { TaskLink, TaskSummary } from '../shared/model'
 import { EMPTY_FILTER, normalizeFilter, normalizePresets, type TaskFilter, type TaskPreset } from '../shared/task-filter'
 import * as s from './state'
 import { loadSettings, settingsSaving, settingsState } from './settings'
+import { loadSendState } from './send'
 
 type Name = keyof PluginRequests
 type Value<K extends Name> = PluginRequests[K] extends { output: Result<infer T> } ? T : never
@@ -559,6 +560,7 @@ export function setTab(tab: s.Tab): void {
 /** Loads the settings the first time the Settings tab shows (a failed load is retried from its Retry button). */
 export function ensureSettings(): void {
   if (!read(settingsState) && !read(settingsSaving)) void loadSettings()
+  void loadSendState()
   // The Lists picker shows the Workspace's Spaces and the contents of those with a choice.
   if (!read(s.browseTree).spaces && !read(s.browseTree).loadingSpaces) void loadSpaces(false)
   else loadChosenChildren()

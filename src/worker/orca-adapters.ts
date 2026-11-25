@@ -1,9 +1,12 @@
 // The only module (besides worker.ts) that touches the Orca worker API: implements the ports.
 // Host methods used: secrets.*, storage.*, project.list, workspace.list, workspace.create,
-// agents.list, notifications.show. Nothing here reads or types into a terminal.
+// agents.list, notifications.show and (Overhedge build) chat.list, chat.send. Nothing here reads or
+// types into a terminal.
 import type { OrcaWorkerApi } from 'orca/worker'
 import type {
+  ChatGateway,
   KeyValueStore,
+  OrcaChat,
   OrcaGateway,
   OrcaProject,
   OrcaWorkspace,
@@ -67,5 +70,31 @@ export function orcaGateway(orca: OrcaWorkerApi): OrcaGateway {
       await orca.host.call('notifications.show', params)
     },
     log: (message) => orca.log(message)
+  }
+}
+
+/**
+ * `chat.list` / `chat.send` exist only in the Overhedge Orca build, so they are called by name
+ * after `orca.host.has`, not through the typed table of whichever Orca generated the typings.
+ */
+export function chatGateway(orca: OrcaWorkerApi): ChatGateway {
+  const call = orca.host.call as unknown as (method: string, params: unknown) => Promise<unknown>
+  const has = (method: string): boolean => {
+    try {
+      return orca.host.has(method as never) === true
+    } catch {
+      return false
+    }
+  }
+  return {
+    available: () => has('chat.list') && has('chat.send'),
+    async list() {
+      const answer = (await call('chat.list', {})) as { chats: OrcaChat[]; unreachableHostIds: string[] }
+      return { chats: answer.chats, unreachableHostIds: answer.unreachableHostIds }
+    },
+    async send(params) {
+      const answer = (await call('chat.send', params)) as { status: 'sent' | 'queued' }
+      return answer.status
+    }
   }
 }

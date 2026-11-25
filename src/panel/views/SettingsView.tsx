@@ -1,10 +1,11 @@
-// Settings tab: account, Lists (scope and statuses), start defaults, notifications, cached data, about.
+// Settings tab: account, Lists (scope and statuses), start defaults, Send to chat templates, notifications, cached data, about.
 import { Button, Callout, Input, KeyValue, Link, Row, Select, Separator, Skeleton, Stack, Switch, Text, read, set } from 'orca'
 import * as api from '../api'
 import * as st from '../settings'
 import type { SettingsState, TaskContextMode } from '../../shared/model'
 import * as s from '../state'
 import { ListsSection } from './ListsSection'
+import { TemplatesSection } from './TemplatesSection'
 
 const AUTH_HELP = 'https://developer.clickup.com/docs/authentication'
 
@@ -193,6 +194,10 @@ export function SettingsView() {
       </Section>
       <Separator />
       <StartDefaults state={state} />
+      <Separator />
+      <Section title="Send to chat">
+        <TemplatesSection />
+      </Section>
       <Separator />
       <Notifications state={state} />
       <Separator />

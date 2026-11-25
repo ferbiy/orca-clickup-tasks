@@ -28,6 +28,11 @@ The sections below are the upstream design of `feature/start-task`. This fork ch
   `TaskService.queryTasks` / `TaskTracker.queryTasks` add the Workspace task query for views other
   than "mine, not closed" (one page per call, memoized a minute). `items.ts` maps to the contract's
   shapes and clamps to its limits.
+- **Send to chat (0.4.0)**: `shared/send-template.ts` (templates, placeholder rendering, message
+  check), `worker/services/send-service.ts` over a `ChatGateway` port (`chat.list` / `chat.send`, the
+  Overhedge build's `chat:send`), `worker/stores/send-store.ts` (`prefs.sendTemplates`,
+  `prefs.sendLast`), `worker/send-handlers.ts` (`send.*` requests), the Tasks page's `send-to-chat`
+  menu, and the panel's `send.ts`, `SendToChat.tsx`, `TemplatesSection.tsx`.
 - **Settings**: `prefs.settings` stores only fields the person set plus `version: 2`; `moveOnDone`
   defaults to false and a pre-version `true` (the old default, saved by 0.2.0's whole-object writes)
   reads as unset.

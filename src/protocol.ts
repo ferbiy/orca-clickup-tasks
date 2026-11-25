@@ -29,6 +29,7 @@ import type {
   TaskPatch,
   UpdateTaskRequest
 } from './shared/model'
+import type { ChatChoices, ChatTarget, SendResult, SendState, SendTemplate } from './shared/send-template'
 
 export {}
 
@@ -137,6 +138,17 @@ declare module 'orca' {
 
     /** Drops cached tasks, statuses and the Browse tree (not the token, settings or links), then posts 'tasks.changed'. */
     'cache.clear': { output: Result<{ ok: true }> }
+
+    /** "Send to chat" templates, the chat each last went to, and whether this Orca can send (Overhedge build). */
+    'send.state': { output: Result<SendState> }
+    /** Replaces the templates (validated; at most 20). */
+    'send.saveTemplates': { input: { templates: SendTemplate[] }; output: Result<SendState> }
+    /** Open Orca chats on this computer and paired servers (`chat.list`). */
+    'send.chats': { output: Result<ChatChoices> }
+    /** The template filled from the task, and the chat it would go to (last used, else its default). */
+    'send.preview': { input: { taskId: string; templateId: string }; output: Result<{ text: string; target: ChatTarget | null }> }
+    /** Sends the (edited) message into the chat (`chat.send`); then the template's optional comment/status. */
+    'send.run': { input: { taskId: string; templateId: string; text: string; target: ChatTarget }; output: Result<SendResult> }
 
     /** Every task <-> workspace link, newest first. */
     'links.list': { output: Result<TaskLink[]> }

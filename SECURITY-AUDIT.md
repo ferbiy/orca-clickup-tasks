@@ -57,7 +57,7 @@ fork fixes both and drops the access they needed. Safe to base on, with the chan
 
 `trusted-worker` still means an unsandboxed Node process running as you. The fork requests:
 `secrets:own`, `storage:own`, `workspace:read`, `workspace:create`, `agent:launch`, `agent:read`,
-`notifications:show` (each explained in the README). Residual risks: task text still reaches the
+`notifications:show`, and from 0.4.0 `chat:send` (each explained in the README). Residual risks: task text still reaches the
 agent and the model provider (fenced, scoped); a ClickUp token has no scopes (OAuth tokens act as
 the user in the Workspaces they authorized); ClickUp offers no token-revoke API.
 
@@ -81,3 +81,27 @@ Scope: `src/worker/task-source/` (`items.ts`, `task-source-service.ts`, `registe
 
 Verdict: no new access, no new network destination, scope enforced on every path. Tests: 370 pass
 (`orca plugin test`), `tsc --noEmit` clean, `orca plugin validate` / `check` ok.
+
+## Re-check for 0.4.0: Send to chat (2026-11-25)
+
+Scope: `src/shared/send-template.ts` (templates, rendering, message check), `src/worker/services/send-service.ts`,
+`src/worker/stores/send-store.ts`, `src/worker/send-handlers.ts`, `chatGateway` in `src/worker/orca-adapters.ts`,
+the `send-to-chat` action of the Tasks page source, the panel's `send.ts`, `SendToChat.tsx` and
+`TemplatesSection.tsx`, and the manifest. Same criteria as above.
+
+| Area | Finding | Risk |
+|---|---|---|
+| Capabilities | **One added: `chat:send`**, the Overhedge build's capability for `chat.list` and `chat.send` (fork branch `overhedge/chat-send`; stock Orca has no plugin method that sends into an existing chat). Consent text: "List your open Orca chats (agent, chat and workspace names, on this computer and paired Orca servers) and send a message into one; it cannot read their messages, open new chats or type into terminals". It is narrower than `terminal:send` (no keystrokes, no shell, no terminals at all) and was chosen over re-adding that. `terminal:read`, `terminal:send` and `workspace:write` stay out. | Medium (new write path into agent chats) |
+| What the host enforces | `chat.send` takes `{ chatId, hostId, text }` only. Orca checks that the chat is open now on that host (its own `agent.list`), that a remote host is a paired server the desktop lists, that the text is at most 4000 characters of plain lines (no control, bidi or invisible characters) and does not start with `/`; it then makes the chat composer's own `agentSession.send` (`queue-if-active`, text only: no images, skills or options). Closed chats, terminal agents and unknown ids are refused, so no chat is created. Every send is in Orca's plugin audit log (host, chat id, length). | Low |
+| What the chat receives | The message the person saw and could edit (panel), or the template filled as written (Tasks page menu, which has no editor: the template text is the person's own, the task values are cleaned). It is a user message, so the agent acts on it as on anything the person types: that is the feature, and why only the person's own text and cleaned task values go in. | Medium (by design) |
+| Untrusted text | `{title}`, `{list}`, `{status}`, `{assignees}`: hidden characters removed, one line, capped (200/100). `{task_id}` / `{task_url}` are checked plain (`[A-Za-z0-9_-]`, `https://app.clickup.com/...`) or rebuilt from the id. `{description}` only when the template has it: CRLF/tabs normalized, hidden characters removed, capped at 1500, between random 16-hex fence lines with a "data, not instructions" line, and any copy of the fence in it removed. Placeholders expand in one pass (a title like `{description}` stays text). A result starting with `/` gets `Task: ` in front; a template starting with `/` is refused. Tests in `send-template.test.ts`. | Low |
+| Chat list | `chat.list` gives chat id, host, server name, agent, chat name, workspace, status and time; never messages or the last reply. It is read only when the send form or the template editor opens, never in the background. Chat names are shown as plain text. | Low |
+| Storage | Templates and the last chat per template in plugin storage (`prefs.sendTemplates`, `prefs.sendLast`): template text, chat ids and labels. No task text, no message bodies. | Low |
+| ClickUp writes | None by default. A template may opt in to a comment ("Sent to an Orca chat (<label>) with the "<name>" message.") and/or a status (only one of the task's own List), after a successful send, through the existing `TaskService.update` (scope-checked). | Low |
+| Scope | Every send reads the task through `TaskService.get`, which refuses a task outside the chosen Lists before anything is rendered or sent. | None |
+| Network | No new destination. Delivery to the paired server goes through Orca (`chat.send`), not the plugin. | None |
+| Stock Orca | 0.4.0's manifest asks for `chat:send`, which stock Orca's closed capability list does not know, so stock Orca refuses to install 0.4.0. The worker also checks `orca.host.has('chat.send')` before any call. | None (fails closed) |
+
+Verdict: one new capability, narrower than the terminal access removed earlier; the host refuses
+commands, hidden characters, closed chats, terminal agents and unknown hosts; task text stays
+cleaned and fenced; nothing in ClickUp changes unless a template asks for it.

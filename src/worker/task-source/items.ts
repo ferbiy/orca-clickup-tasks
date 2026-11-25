@@ -3,6 +3,7 @@
 // PR #26282); the renderer refuses an answer outside its limits, so every string is clamped here.
 import { priorityLabel } from '../../shared/display'
 import type { ProjectOption, StatusOption, TaskDetail, TaskLink, TaskSummary } from '../../shared/model'
+import type { SendState } from '../../shared/send-template'
 
 export const TASK_SOURCE_ID = 'clickup'
 
@@ -194,4 +195,19 @@ export function detailActions(input: {
     })
   }
   return actions
+}
+
+/**
+ * "Send to chat" as a menu of templates. The Tasks page has no preview or picker, so each sends as
+ * written to the chat it last went to (else its default); one without a chat says to pick it in the panel.
+ */
+export function sendAction(state: SendState): SourceAction {
+  return {
+    id: 'send-to-chat',
+    label: 'Send to chat',
+    options: state.templates.slice(0, 20).map((t) => {
+      const target = state.last[t.id] ?? t.target
+      return { value: t.id, label: clamp(target ? `${t.name} → ${target.label}` : `${t.name} (pick its chat in the panel first)`, 128) }
+    })
+  }
 }

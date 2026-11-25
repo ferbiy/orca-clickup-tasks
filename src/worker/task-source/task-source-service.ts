@@ -9,12 +9,15 @@ import { LIST_IDS_PER_REQUEST } from '../../tracker/tracker'
 import type { Clock } from '../ports'
 import type { AuthService } from '../services/auth-service'
 import type { ScopeService } from '../services/scope-service'
+import type { SendService } from '../services/send-service'
 import type { StartService } from '../services/start-service'
 import type { TaskService } from '../services/task-service'
 import type { LinkStore } from '../stores/link-store'
 import type { PrefsStore } from '../stores/prefs-store'
 import {
+  clamp,
   detailActions,
+  sendAction,
   detailMarkdown,
   parseProjectValue,
   toDetailItem,
@@ -52,6 +55,8 @@ export interface TaskSourceDeps {
   tasks: Pick<TaskService, 'list' | 'get' | 'statuses' | 'cachedStatuses' | 'update' | 'queryTasks'>
   scope: Pick<ScopeService, 'get' | 'isEmpty' | 'lists'>
   start: Pick<StartService, 'projects' | 'run'>
+  /** "Send to chat" (Overhedge build with chat.send); absent in older wiring and tests. */
+  send?: Pick<SendService, 'state' | 'quickSend'>
   prefs: Pick<PrefsStore, 'settings' | 'projectForList'>
   links: Pick<LinkStore, 'findByTask'>
   clock: Clock
@@ -106,11 +111,10 @@ export class TaskSourceService {
       this.deps.prefs.projectForList(task.list.id),
       this.deps.links.findByTask(task.id)
     ])
-    return {
-      item: toDetailItem(task),
-      bodyMarkdown: detailMarkdown(task, links),
-      actions: detailActions({ task, statuses, projects, rememberedProjectId: remembered, agentLabel: this.deps.agentLabel(settings.defaultAgent) })
-    }
+    const actions = detailActions({ task, statuses, projects, rememberedProjectId: remembered, agentLabel: this.deps.agentLabel(settings.defaultAgent) })
+    const send = this.deps.send ? await this.deps.send.state() : null
+    if (send?.available && send.templates.length > 0) actions.push(sendAction(send))
+    return { item: toDetailItem(task), bodyMarkdown: detailMarkdown(task, links), actions }
   }
 
   async action(params: { itemId: string; actionId: string; value?: string }): Promise<{ message?: string; detail?: SourceDetail }> {
@@ -149,6 +153,11 @@ export class TaskSourceService {
         message: `${this.deps.agentLabel(link.agent)} started on branch ${link.branch}.${note}`.slice(0, 512),
         detail: await this.get(itemId)
       }
+    }
+    if (params.actionId === 'send-to-chat' && this.deps.send) {
+      const result = await this.deps.send.quickSend(itemId, params.value ?? '')
+      const done = result.status === 'queued' ? `Queued in ${result.target.label} (the chat is busy).` : `Sent to ${result.target.label}.`
+      return { message: clamp(result.note ? `${done} ${result.note}` : done, 512) }
     }
     throw new PluginError('invalid_input', `Unknown action “${params.actionId}”.`)
   }

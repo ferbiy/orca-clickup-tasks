@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "clickup-tasks",
   "name": "ClickUp Tasks (Overhedge)",
-  "version": "0.3.0",
-  "description": "Your ClickUp tasks from the Lists you choose, in Orca's sidebar and (Overhedge build) its Tasks page: sign in with OAuth, start a task in its own worktree with your coding agent, and move its status by the List's own workflow.",
+  "version": "0.4.0",
+  "description": "Your ClickUp tasks from the Lists you choose, in Orca's sidebar and (Overhedge build) its Tasks page: sign in with OAuth, start a task in its own worktree with your coding agent, or send a short prepared message with the task link into an Orca chat you pick (Overhedge build), and move its status by the List's own workflow.",
   "author": {
     "name": "Overhedge (fork of gthjnk/orca-clickup-tasks)",
     "url": "https://github.com/ferbiy"
@@ -17,7 +17,7 @@
     "alt": "ClickUp Tasks in Orca's sidebar: My tasks grouped by status beside a task's detail with its status menu, checklist, subtasks and comments."
   },
   "engines": {
-    "orca": ">=1.4.260"
+    "orca": ">=1.4.273"
   },
   "execution": "trusted-worker",
   "pluginApi": 1,
@@ -49,6 +49,7 @@
     { "kind": "workspace:create" },
     { "kind": "agent:launch" },
     { "kind": "agent:read" },
-    { "kind": "notifications:show" }
+    { "kind": "notifications:show" },
+    { "kind": "chat:send" }
   ]
 }

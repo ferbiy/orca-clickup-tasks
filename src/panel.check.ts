@@ -119,6 +119,22 @@ export default defineCheck({
       'tasks.list': { ok: true, value: { tasks: json(checkTasks), fetchedAt: now, stale: false } }
     } as never
   },
+  // Send to chat templates in Settings (the worker answers send.state from storage).
+  settingsSendTemplates: {
+    ...connected,
+    storage: {
+      ...connected.storage,
+      'prefs.sendTemplates': [
+        { id: 'triage', name: 'Triage', text: 'Please triage {task_id}: {title}\n{task_url}', target: { hostId: 'runtime:env1', chatId: 'chatSession01', label: 'orca-ide › api › Backend triage (claude)' }, comment: false, status: '' },
+        { id: 'implement', name: 'Implement', text: 'Implement {task_id} ({list}): {task_url}', target: null, comment: false, status: '' }
+      ]
+    },
+    persisted: { plugin: { activeTab: 'settings' } },
+    requests: {
+      'settings.get': { ok: true, value: json(checkSettings) },
+      'tasks.list': { ok: true, value: { tasks: json(checkTasks), fetchedAt: now, stale: false } }
+    } as never
+  },
   // 8a: title mid-edit (persisted editing state for the open task).
   detailEditingTitle: {
     ...connected,

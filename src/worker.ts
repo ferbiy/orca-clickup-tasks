@@ -6,11 +6,14 @@ import { createRateGate } from './clickup/http'
 import { systemClipboard } from './worker/clipboard'
 import { registerHandlers } from './worker/handlers'
 import { listenLoopback } from './worker/loopback'
-import { keyValueStore, orcaGateway, panelPoster, secretStore } from './worker/orca-adapters'
+import { chatGateway, keyValueStore, orcaGateway, panelPoster, secretStore } from './worker/orca-adapters'
 import { AuthService } from './worker/services/auth-service'
 import { EditService } from './worker/services/edit-service'
 import { OAuthService } from './worker/services/oauth-service'
 import { RunWatcher } from './worker/services/run-watcher'
+import { registerSendHandlers } from './worker/send-handlers'
+import { SendService } from './worker/services/send-service'
+import { SendStore } from './worker/stores/send-store'
 import { ScopeService } from './worker/services/scope-service'
 import { agentLabel, StartService } from './worker/services/start-service'
 import { TaskService } from './worker/services/task-service'
@@ -88,10 +91,19 @@ export default function activate(orca: OrcaWorkerApi): void {
     fence: () => crypto.randomUUID().replace(/-/g, '').slice(0, 16)
   })
 
+  // "Send to chat" (Overhedge build with chat.send): a template filled from the task, into a chosen chat.
+  const send = new SendService({
+    tasks,
+    store: new SendStore(kv),
+    chats: chatGateway(orca),
+    fence: () => crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+  })
+  registerSendHandlers(orca, { send, log, onAuthInvalid: () => auth.invalidate() })
+
   registerHandlers(orca, { auth, oauth, scope, transitions, tasks, edit, clipboard: systemClipboard(), start, watcher, links, prefs, clock, post, log })
 
   // Orca's Tasks page (Overhedge build): same services, caches and request budget as the panel.
-  const source = new TaskSourceService({ auth, tasks, scope, start, prefs, links, clock, agentLabel })
+  const source = new TaskSourceService({ auth, tasks, scope, start, send, prefs, links, clock, agentLabel })
   registerTaskSource(orca, { source, onAuthInvalid: () => auth.invalidate(), log })
 
   orca.events.on('agent.status.changed', (event) => watcher.onAgentStatus(event))

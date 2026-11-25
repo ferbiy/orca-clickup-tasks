@@ -24,6 +24,9 @@ Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks
   ClickUp's status types; each List can override them or say "don't change". When no status fits,
   nothing changes and the run card says why. A comment with the branch and agent is posted on start
   (and on finish when that move is on); it can be turned off.
+- **Send to chat** (Overhedge Orca build with chat send): instead of a new worktree, send a short
+  prepared message with the task link into an Orca chat that is already open (on this computer or
+  the paired server) and let that chat take it from there. See [Send to chat](#send-to-chat-overhedge-build).
 - **Tasks page tab** (Overhedge Orca build only): the same tasks, search, filters, status menu and
   Start, on Orca's own Tasks page. See [Orca's Tasks page](#orcas-tasks-page-overhedge-build).
 
@@ -56,7 +59,8 @@ loopback listener are all on your computer, and a project on the server is start
 A headless `orca serve` has no plugin service, so this plugin cannot run there, and Orca's web
 client in a browser cannot use it.
 
-Requires Orca `>=1.4.260` and an OS keychain (macOS Keychain; on Linux GNOME Keyring or KWallet).
+Requires Orca `>=1.4.273` (0.4.0 asks for `chat:send`, which only the Overhedge build knows: stock
+Orca refuses to install it; stay on 0.3.0 there) and an OS keychain (macOS Keychain; on Linux GNOME Keyring or KWallet).
 
 ## Connect: create your ClickUp OAuth app (once)
 
@@ -101,6 +105,7 @@ you in every Workspace and never expires; use it for development only.
 | `agent:launch` | Start your agent in that worktree with the task prompt (part of `workspace.create`). |
 | `agent:read` | Know when the agent is working, needs input or has finished (status move, notification), and check runs that never started. |
 | `notifications:show` | "Claude finished …" / "needs input" notifications. |
+| `chat:send` | Send to chat (Overhedge build only): list your open Orca chats (agent, chat and workspace names, never their messages) and send the message you confirmed into the one you pick. |
 
 Not requested (the upstream branch asked for them): `terminal:read`, `terminal:send`,
 `workspace:write`. The plugin never reads or types into a terminal and never switches your focus.
@@ -118,10 +123,53 @@ It has no hooks and no settings capability. Only its worker talks to the network
 - ClickUp changes only through what you start or edit (in the panel or on the Tasks page): a status
   move and comment at start, and (setting, off by default) a status move and comment the first time
   the agent finishes, only while the task still shows the status the start set.
+- Send to chat puts into a chat only the message you saw (panel) or the template as written (Tasks
+  page menu): task text in it is cleaned, the description only on request and fenced as data. It
+  goes into a chat that is open now on this computer or the paired server, never a new chat or a
+  terminal. It is the message you would have typed yourself, so the agent in that chat acts on it
+  as on any message of yours.
 - ClickUp allows 100 requests a minute per token on Free, Unlimited and Business plans. The worker
   keeps itself under 80 a minute for the panel and the Tasks page together, caches lists, statuses
   and the hierarchy, and stops after a 429 until ClickUp's reset time. The plugin itself polls
   nothing; the Tasks page asks for its list every two minutes while it is open (see below).
+
+## Send to chat (Overhedge build)
+
+For a team that works in chats it already has open: from a task, send a short prepared message with
+the task link into one of those chats. No worktree, no agent start, no run card: the chat owns it.
+Needs the Overhedge Orca build with plugin chat send (fork branch `overhedge/chat-send`;
+`OVERHEDGE.md` › "Plugin chat send"); on any other Orca the button says so and nothing is sent.
+
+**Add templates (once).** Settings › **Send to chat** › **Add template**: a name ("Triage",
+"Implement") and a short message with placeholders, for example
+
+```text
+Please triage {task_id}: {title} ({list}, {status})
+{task_url}
+```
+
+Placeholders: `{task_url}` (the ClickUp link), `{task_id}` (the Custom Task ID such as `OVH-142` when
+the Workspace uses them, else the task id), `{title}`, `{list}`, `{status}`, `{assignees}`, and
+`{description}`. Title, List, status and assignees are cleaned (control, bidi and invisible
+characters removed, one line, capped). The description is left out unless the template has
+`{description}`; then it goes in a block between random fence lines, marked as data from ClickUp,
+not instructions (at most 1500 characters). A template cannot start with `/` (the chat would run it
+as a command). Optional per template, both **off** by default: a **default chat**, **comment on the
+task** after sending, and **move the task to a status** (by name, if its List has it).
+
+**Send from the panel.** Open a task › **Send to chat ▾** › pick the template › the message is
+filled in and you can edit it › pick the chat (your open Orca chats on this computer and on the
+paired server, shown as `server › workspace › chat (agent)`; terminal agents are not listed) ›
+**Send**. A busy chat queues the message and takes it after its current turn. The chat you used is
+remembered per template and preselected next time.
+
+**Send from the Tasks page.** The task's **Send to chat ▾** menu lists the templates with the chat
+each goes to (the last one used, else the template's default) and sends the filled message as is.
+The Tasks page has no editor or chat picker, so a template with no chat yet asks you to send it once
+from the panel (or set its default chat).
+
+The plugin cannot read the chats, open new ones or type into terminals: Orca's `chat.send` takes only
+an open chat's id and plain text, and the panel's preview is the confirmation (no further prompt).
 
 ## Orca's Tasks page (Overhedge build)
 
@@ -141,7 +189,8 @@ nothing useful, and the panel works as before. No new permission is needed.
 - **Detail**: title with the Custom Task ID, status, priority, assignees, tags, and a body with the
   location, due date, the description (ClickUp's markdown, untrusted: shown through Orca's sanitizing
   markdown view, as in the panel), checklists, subtasks and the Orca runs started for the task.
-- **Actions**: **Status ▾** (the List's statuses; moves the task and refreshes the panel's row),
+- **Actions**: **Send to chat ▾** (see [Send to chat](#send-to-chat-overhedge-build); only with
+  templates and an Orca that has chat send), **Status ▾** (the List's statuses; moves the task and refreshes the panel's row),
   **Start <agent> ▾** (your git projects on every host, the one last used for that List first). Start
   is the panel's Start flow with your Settings defaults (agent, base branch, move to in progress,
   task context): a worktree and branch named after the Custom Task ID as the team writes it

@@ -12,6 +12,7 @@ import { Subtasks } from './detail/Subtasks'
 import { Attachments } from './detail/Attachments'
 import type { TaskDetail } from '../../shared/model'
 import { RunCard } from './RunCard'
+import { SendToChat } from './SendToChat'
 import { StartForm } from './StartForm'
 import { UpdateTaskForm } from './UpdateTaskForm'
 
@@ -96,6 +97,7 @@ export function TaskDetailView() {
         <>
           <Header task={task} />
           <Body task={task} detail={detail!} />
+          <SendToChat taskId={task.id} />
           <RunSection />
         </>
       ) : (

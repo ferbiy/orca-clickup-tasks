@@ -65,6 +65,28 @@ export interface OrcaGateway {
   log(message: string): void
 }
 
+/** An open Orca chat as `chat.list` gives it (Overhedge build). */
+export interface OrcaChat {
+  chatId: string
+  hostId: string
+  /** The paired server's name; null for this computer. */
+  hostLabel: string | null
+  agent: string | null
+  title: string | null
+  workspace: string
+  state: 'working' | 'blocked' | 'waiting' | 'done'
+  updatedAt: number
+}
+
+/** Orca's chats (`chat.list`, `chat.send`, capability `chat:send`). Absent on stock Orca. */
+export interface ChatGateway {
+  /** Whether this Orca offers the methods (`orca.host.has`). */
+  available(): boolean
+  list(): Promise<{ chats: OrcaChat[]; unreachableHostIds: string[] }>
+  /** Sends `text` as the person's message; 'queued' when the chat was busy. */
+  send(params: { hostId: string; chatId: string; text: string }): Promise<'sent' | 'queued'>
+}
+
 /** Pushes an event to every open panel (orca.panels.post). Typed by src/protocol.ts. */
 export type PanelPoster = <E extends keyof import('orca').PluginPanelEvents>(
   event: E,
