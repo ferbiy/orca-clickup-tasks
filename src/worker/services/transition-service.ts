@@ -13,6 +13,7 @@ import type {
   TaskLink
 } from '../../shared/model'
 import { resolveStatus } from '../../shared/status-pick'
+import { parseHexColor } from '../../shared/status-color'
 import type { Clock } from '../ports'
 import type { PrefsStore } from '../stores/prefs-store'
 import type { TaskService } from './task-service'
@@ -31,6 +32,16 @@ export class TransitionService {
   async resolve(listId: string, which: StatusTransition): Promise<StatusResolution> {
     const [statuses, override] = await Promise.all([this.deps.tasks.statuses(listId), this.deps.prefs.statusOverride(listId, which)])
     return resolveStatus(statuses, which, override)
+  }
+
+  /** The checked colour of a List status, for the run card; null when unknown. Statuses are cached. */
+  private async colorOf(listId: string, name: string): Promise<string | null> {
+    try {
+      const found = (await this.deps.tasks.statuses(listId)).find((st) => st.name.toLowerCase() === name.toLowerCase())
+      return parseHexColor(found?.color)
+    } catch {
+      return null
+    }
   }
 
   async mapping(listId: string): Promise<ListStatusMapping> {
@@ -78,7 +89,8 @@ export class TransitionService {
       this.deps.log(`start transition failed: ${messageOf(error)}`)
       return { status: null, note: `Could not update ClickUp: ${messageOf(error)}`, at: this.deps.clock() }
     }
-    return { status, note, at: this.deps.clock() }
+    const color = status ? await this.colorOf(task.list.id, status) : null
+    return { status, note, at: this.deps.clock(), ...(color ? { color } : {}) }
   }
 
   /**
@@ -104,7 +116,8 @@ export class TransitionService {
         ? `${this.deps.agentLabel(link.agent)} finished on branch ${link.branch}. Review the changes in Orca.`
         : ''
       await this.deps.tasks.update({ taskId: task.id, status: r.status, comment })
-      return { status: r.status, note: `Moved to “${r.status}”.${comment ? ' Comment posted.' : ''}`, at }
+      const color = await this.colorOf(task.list.id, r.status)
+      return { status: r.status, note: `Moved to “${r.status}”.${comment ? ' Comment posted.' : ''}`, at, ...(color ? { color } : {}) }
     } catch (error) {
       this.deps.log(`done transition failed: ${messageOf(error)}`)
       return { status: null, note: `Could not update ClickUp: ${messageOf(error)}`, at }

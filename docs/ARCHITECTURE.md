@@ -33,6 +33,32 @@ The sections below are the upstream design of `feature/start-task`. This fork ch
   Overhedge build's `chat:send`), `worker/stores/send-store.ts` (`prefs.sendTemplates`,
   `prefs.sendLast`), `worker/send-handlers.ts` (`send.*` requests), the Tasks page's `send-to-chat`
   menu, and the panel's `send.ts`, `SendToChat.tsx`, `TemplatesSection.tsx`.
+- **Status colours (0.4.1)**: `shared/status-color.ts` checks ClickUp's colour (`parseHexColor`:
+  `#rgb`/`#rrggbb` only, normalized to lower-case `#rrggbb`), gives a pinned fallback otherwise
+  (`fallbackStatusColor`: FNV-1a of the trimmed, lower-cased name into a fixed 12-colour palette, every
+  entry at least 3:1 against `#fff` and `#0a0a0a`; only append to it), and maps a colour to the
+  nearest circle character (`colorDot`, `statusLabel`). `clickup/mapper.ts` puts `color` on
+  `StatusOption`, `TaskSummary.status` and `SubtaskRef.status` (null when absent or invalid);
+  `TransitionService` records it on `StatusChange.color` for the run card. `CacheStore` always writes
+  the `color` key and treats entries without it (0.4.0 caches) as absent, so real colours load at
+  once; it also now accepts the `unstarted` type (Lists with such statuses were never cached). The
+  panel draws circles (group titles, header badge in the neutral tone, status Selects, subtasks,
+  Start checkbox, run card). The Tasks page source (`worker/task-source/items.ts`) sends
+  `status.color` on items and `color` on status options, and writes the circle into labels unless
+  the command's `features` argument contains `status-color` (`register.ts` `parseStyle`). `clamp` now
+  counts UTF-16 units, as the renderer's zod limits do.
+- **Proposed fork change for Tasks page colours** (not made; `overhedge/patch-273`): in
+  `src/shared/plugins/tasks/plugin-task-source-schema.ts` add
+  `color: z.string().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/).optional().catch(undefined)` to
+  the item `status` object and to `optionSchema` (an invalid colour is dropped, not a failed answer);
+  in `PluginTaskStatusPill.tsx` use `getLinearStatePillStyle(color)` plus a
+  `getLinearStateMarkerStyle(color)` dot when `color` is set (tone classes otherwise), as Linear's
+  state pill does (tinted background, text mixed toward `--foreground`, so it reads in both
+  themes); in `PluginTaskDetailPane.tsx` (`PluginTaskActionControl` menu items) and
+  `PluginTaskSourcePage.tsx` (filter `SelectItem`s) draw a `size-2` dot with that colour before an
+  option's label; in `plugin-task-source-client.ts` add `features: ['status-color']` to every
+  command's params; tests in `plugin-task-source-schema.test.ts` (valid, invalid dropped) and the
+  demo source. The colour only ever reaches React `style` objects, never class names or markup.
 - **Settings**: `prefs.settings` stores only fields the person set plus `version: 2`; `moveOnDone`
   defaults to false and a pre-version `true` (the old default, saved by 0.2.0's whole-object writes)
   reads as unset.

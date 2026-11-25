@@ -5,12 +5,12 @@ import { CacheStore } from './cache-store'
 
 function task(id: string, name = 'T'): TaskSummary {
   return {
-    id, customId: null, name, status: { name: 'open', type: 'open' }, priority: null, dueDate: null,
+    id, customId: null, name, status: { name: 'open', type: 'open', color: '#d3d3d3' }, priority: null, dueDate: null,
     url: 'https://x', list: { id: 'l1', name: 'L' }, location: 'S › L', parentId: null, updatedAt: 1,
     createdAt: 5, timeEstimateMs: null
   }
 }
-const statuses: StatusOption[] = [{ name: 'to do', type: 'open', order: 0 }, { name: 'done', type: 'done', order: 1 }]
+const statuses: StatusOption[] = [{ name: 'to do', type: 'open', order: 0, color: '#d3d3d3' }, { name: 'done', type: 'done', order: 1, color: null }]
 
 describe('CacheStore', () => {
   test('readTasks returns data for the same team, null for another or none', async () => {
@@ -31,6 +31,23 @@ describe('CacheStore', () => {
     assert.equal(await c.readTasks('t1'), null)
     await c.writeTasks('t1', 200, [task('a')])
     assert.deepEqual((await c.readTasks('t1'))?.tasks, [task('a')])
+  })
+
+  test('entries cached before status colours (0.4.0) read as absent, so real colours load at once', async () => {
+    const kv = new MemoryKeyValueStore()
+    const c = new CacheStore(kv)
+    const a = task('a')
+    await kv.set('cache.tasks', { teamId: 't1', fetchedAt: 100, tasks: [{ ...a, status: { name: 'open', type: 'open' } }] } as never)
+    assert.equal(await c.readTasks('t1'), null)
+    await kv.set('cache.statuses', { l1: { fetchedAt: 100, statuses: [{ name: 'to do', type: 'open', order: 0 }] } } as never)
+    assert.equal(await c.readStatuses('l1', 100, 1000), null)
+  })
+
+  test('unstarted statuses are cached like the others', async () => {
+    const c = new CacheStore(new MemoryKeyValueStore())
+    const list: StatusOption[] = [{ name: 'backlog', type: 'unstarted', order: 0, color: '#87909e' }]
+    await c.writeStatuses('l1', 100, list)
+    assert.deepEqual(await c.readStatuses('l1', 100, 1000), list)
   })
 
   test('patchTask replaces a present task and is a no-op for an absent one', async () => {

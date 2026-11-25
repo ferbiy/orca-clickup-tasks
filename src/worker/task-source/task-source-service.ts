@@ -16,7 +16,9 @@ import type { LinkStore } from '../stores/link-store'
 import type { PrefsStore } from '../stores/prefs-store'
 import {
   clamp,
+  DOT_LABELS,
   detailActions,
+  statusOption,
   sendAction,
   detailMarkdown,
   parseProjectValue,
@@ -25,7 +27,8 @@ import {
   taskRef,
   type SourceDetail,
   type SourceFilter,
-  type SourceItem
+  type SourceItem,
+  type StatusStyle
 } from './items'
 
 /** Items per answer from the cache. */
@@ -41,6 +44,8 @@ export interface ListParams {
   query: string
   filters: Record<string, string>
   cursor?: string
+  /** How the asking host draws statuses (from its `features`); plain-dot labels when absent. */
+  style?: StatusStyle
 }
 
 export interface ListAnswer {
@@ -95,14 +100,14 @@ export class TaskSourceService {
     const seen = new Map(statuses.map((s) => [s.name.toLowerCase(), s]))
     for (const s of answer.seen) if (!seen.has(s.name.toLowerCase())) seen.set(s.name.toLowerCase(), { ...s, order: 999 })
     return {
-      items: answer.tasks.map(toItem),
+      items: answer.tasks.map((t) => toItem(t, params.style ?? DOT_LABELS)),
       ...(answer.nextCursor ? { nextCursor: answer.nextCursor } : {}),
-      filters: buildFilters(lists, [...seen.values()]),
+      filters: buildFilters(lists, [...seen.values()], params.style ?? DOT_LABELS),
       ...(answer.notice ? { notice: answer.notice } : {})
     }
   }
 
-  async get(itemId: string): Promise<SourceDetail> {
+  async get(itemId: string, style: StatusStyle = DOT_LABELS): Promise<SourceDetail> {
     const task = await this.deps.tasks.get(requireItemId(itemId), { reuse: true })
     const [statuses, projects, settings, remembered, links] = await Promise.all([
       this.deps.tasks.statuses(task.list.id),
@@ -111,26 +116,27 @@ export class TaskSourceService {
       this.deps.prefs.projectForList(task.list.id),
       this.deps.links.findByTask(task.id)
     ])
-    const actions = detailActions({ task, statuses, projects, rememberedProjectId: remembered, agentLabel: this.deps.agentLabel(settings.defaultAgent) })
+    const actions = detailActions({ task, statuses, projects, rememberedProjectId: remembered, agentLabel: this.deps.agentLabel(settings.defaultAgent), style })
     const send = this.deps.send ? await this.deps.send.state() : null
     if (send?.available && send.templates.length > 0) actions.push(sendAction(send))
-    return { item: toDetailItem(task), bodyMarkdown: detailMarkdown(task, links), actions }
+    return { item: toDetailItem(task, style), bodyMarkdown: detailMarkdown(task, links), actions }
   }
 
-  async action(params: { itemId: string; actionId: string; value?: string }): Promise<{ message?: string; detail?: SourceDetail }> {
+  async action(params: { itemId: string; actionId: string; value?: string; style?: StatusStyle }): Promise<{ message?: string; detail?: SourceDetail }> {
     const itemId = requireItemId(params.itemId)
+    const style = params.style ?? DOT_LABELS
     if (params.actionId === 'set-status') {
       const task = await this.deps.tasks.get(itemId, { reuse: true })
       const wanted = (params.value ?? '').toLowerCase()
       const status = (await this.deps.tasks.statuses(task.list.id)).find((s) => s.name.toLowerCase() === wanted)
       if (!status) throw new PluginError('invalid_input', `“${params.value ?? ''}” is not a status of this List.`)
       if (status.name.toLowerCase() === task.status.name.toLowerCase()) {
-        return { message: `${taskRef(task)} is already “${status.name}”.`, detail: await this.get(itemId) }
+        return { message: `${taskRef(task)} is already “${status.name}”.`, detail: await this.get(itemId, style) }
       }
       // update() re-reads the task (refreshing the sidebar's row) and tells the panel.
       await this.deps.tasks.update({ taskId: itemId, status: status.name })
       this.pages.clear()
-      return { message: `${taskRef(task)}: “${status.name}”.`, detail: await this.get(itemId) }
+      return { message: `${taskRef(task)}: “${status.name}”.`, detail: await this.get(itemId, style) }
     }
     if (params.actionId === 'start') {
       const project = parseProjectValue(params.value ?? '')
@@ -151,7 +157,7 @@ export class TaskSourceService {
       const note = link.onStart?.note ? ` ${link.onStart.note}` : ''
       return {
         message: `${this.deps.agentLabel(link.agent)} started on branch ${link.branch}.${note}`.slice(0, 512),
-        detail: await this.get(itemId)
+        detail: await this.get(itemId, style)
       }
     }
     if (params.actionId === 'send-to-chat' && this.deps.send) {
@@ -189,7 +195,7 @@ export class TaskSourceService {
     return {
       tasks: rows.slice(offset, next),
       nextCursor: next < rows.length ? `c:${next}` : undefined,
-      seen: result.tasks.map((t) => ({ name: t.status.name, type: t.status.type, order: 0 })),
+      seen: result.tasks.map((t) => ({ name: t.status.name, type: t.status.type, order: 0, color: t.status.color ?? null })),
       notice: undefined as string | undefined
     }
   }
@@ -228,7 +234,7 @@ export class TaskSourceService {
     return {
       tasks,
       nextCursor: more ? `s:${chunk}:${page}` : undefined,
-      seen: tasks.map((t) => ({ name: t.status.name, type: t.status.type, order: 0 })),
+      seen: tasks.map((t) => ({ name: t.status.name, type: t.status.type, order: 0, color: t.status.color ?? null })),
       notice: query && more && tasks.length < SEARCH_MIN_ITEMS ? 'ClickUp has no text search: Load more searches further pages.' : undefined
     }
   }
@@ -279,7 +285,7 @@ function readView(filters: Record<string, string>, lists: { id: string }[]): Vie
 
 const TYPE_ORDER: Record<StatusOption['type'], number> = { open: 0, unstarted: 1, custom: 2, done: 3, closed: 4 }
 
-function buildFilters(lists: { id: string; name: string; folder: string | null }[], statuses: StatusOption[]): SourceFilter[] {
+function buildFilters(lists: { id: string; name: string; folder: string | null }[], statuses: StatusOption[], style: StatusStyle): SourceFilter[] {
   const listOptions = lists.slice(0, 99).map((l) => ({
     value: l.id,
     label: (l.folder ? `${l.folder} › ${l.name}` : l.name).slice(0, 128) || l.id
@@ -288,7 +294,7 @@ function buildFilters(lists: { id: string; name: string; folder: string | null }
     .sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || a.order - b.order || a.name.localeCompare(b.name))
     .filter((s) => s.name !== '' && s.name.length <= 256)
     .slice(0, 99)
-    .map((s) => ({ value: s.name, label: s.name.slice(0, 128) }))
+    .map((s) => statusOption(s, style))
   return [
     { id: 'list', label: 'List', defaultValue: 'all', options: [{ value: 'all', label: 'All chosen Lists' }, ...listOptions] },
     { id: 'assignee', label: 'Assignee', defaultValue: 'me', options: [{ value: 'me', label: 'Assigned to me' }, { value: 'anyone', label: 'Anyone' }] },

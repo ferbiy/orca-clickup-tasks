@@ -45,9 +45,9 @@ const options: StartOptions = {
   defaults: { agent: 'claude', moveToInProgress: true, baseBranch: '', taskContext: 'link-and-snapshot' }
 }
 const statuses: StatusOption[] = [
-  { name: 'to do', type: 'open', order: 0 },
-  { name: 'in progress', type: 'custom', order: 1 },
-  { name: 'review', type: 'custom', order: 2 }
+  { name: 'to do', type: 'open', order: 0, color: '#d3d3d3' },
+  { name: 'in progress', type: 'custom', order: 1, color: '#4194f6' },
+  { name: 'review', type: 'custom', order: 2, color: '#a875ff' }
 ]
 const link = (state: TaskLink['run']['state']): TaskLink => ({
   taskId: detail.id, taskName: detail.name, taskUrl: detail.url, listId: 'L-api', workspaceId: 'w1', projectId: 'p1',
@@ -160,8 +160,10 @@ describe('panel views', () => {
     const host = mockHost({ requests: requests() })
     const view = await mount(panel, { host })
     const text = JSON.stringify(view.tree())
-    assert.ok(text.includes('In progress · 2'))
-    assert.ok(text.includes('To do · 3'))
+    // Each group title carries its ClickUp colour as a circle (the kit has no colour prop).
+    assert.ok(text.includes('🔵 In progress · 2'))
+    assert.ok(text.includes('⚪ To do · 3'))
+    assert.ok(text.includes('🟣 Review · 1'))
     assert.ok(!text.includes('IN PROGRESS'), 'group titles are not uppercased')
     assert.ok(text.includes('6 open tasks assigned to you'))
     await view.type({ label: 'Search tasks' } as never, 'csv')
@@ -239,7 +241,12 @@ describe('panel views', () => {
     const host = mockHost({ requests: requests({ 'start.run': ok(link('starting')) }) })
     const view = await mount(panel, { host })
     await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
-    assert.ok(JSON.stringify(view.tree()).includes('Start in worktree'))
+    const opened = JSON.stringify(view.tree())
+    assert.ok(opened.includes('Start in worktree'))
+    // Status badge, status menu and the start checkbox show the status colours; values stay plain names.
+    assert.ok(opened.includes('⚪ to do'), 'header badge')
+    assert.ok(opened.includes('{"value":"in progress","label":"🔵 in progress"}'), 'status menu')
+    assert.ok(opened.includes('Move task to “🔵 in progress” on start'), 'start checkbox')
     await view.select({ label: 'Agent' } as never, 'codex')
     await view.press({ text: 'Start in worktree' } as never)
     const run = callsOf(host, 'start.run')
@@ -303,7 +310,8 @@ describe('panel views', () => {
     const view = await mount(panel, { host })
     await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
     const text = JSON.stringify(view.tree())
-    assert.ok(text.includes('On start: Moved to “in progress”'))
+    // The move shows the status's colour (the List's, as this link predates recorded colours).
+    assert.ok(text.includes('On start: 🔵 Moved to “in progress”'), text)
     assert.ok(text.includes('When done: Left as “blocked”'))
   })
 

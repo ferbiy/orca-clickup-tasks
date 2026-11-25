@@ -12,7 +12,7 @@ const SPACES_KEY = 'cache.spaces'
 const CHILDREN_KEY = 'cache.children'
 const MEMBERS_KEY = 'cache.members'
 const SPACE_TAGS_KEY = 'cache.spaceTags'
-const STATUS_TYPES: readonly string[] = ['open', 'custom', 'done', 'closed']
+const STATUS_TYPES: readonly string[] = ['open', 'unstarted', 'custom', 'done', 'closed']
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -22,6 +22,11 @@ function isNumberOrNull(v: unknown): v is number | null {
   return v === null || typeof v === 'number'
 }
 
+/** `color` must be there (string or null): a status without the key was cached before 0.4.1. */
+function hasColorKey(v: Record<string, unknown>): boolean {
+  return v.color === null || typeof v.color === 'string'
+}
+
 function isTask(v: unknown): v is TaskSummary {
   return (
     isRecord(v) &&
@@ -29,6 +34,7 @@ function isTask(v: unknown): v is TaskSummary {
     typeof v.name === 'string' &&
     isRecord(v.status) &&
     typeof v.status.name === 'string' &&
+    hasColorKey(v.status) &&
     isRecord(v.list) &&
     typeof v.list.id === 'string' &&
     isNumberOrNull(v.createdAt) &&
@@ -42,7 +48,8 @@ function isStatus(v: unknown): v is StatusOption {
     typeof v.name === 'string' &&
     typeof v.type === 'string' &&
     STATUS_TYPES.includes(v.type) &&
-    typeof v.order === 'number'
+    typeof v.order === 'number' &&
+    hasColorKey(v)
   )
 }
 
@@ -77,6 +84,15 @@ function isChildren(v: unknown): v is SpaceChildren {
   )
 }
 
+/** Always writes the `color` key (null when unknown), so an entry is never mistaken for a pre-0.4.1 one. */
+function withColor<T extends { color?: string | null }>(status: T): T & { color: string | null } {
+  return { ...status, color: status.color ?? null }
+}
+
+function storedTask(task: TaskSummary): TaskSummary {
+  return { ...task, status: withColor(task.status) }
+}
+
 interface TasksEntry {
   teamId: string
   fetchedAt: number
@@ -106,7 +122,7 @@ export class CacheStore {
   }
 
   async writeTasks(teamId: string, fetchedAt: number, tasks: TaskSummary[]): Promise<void> {
-    const entry: TasksEntry = { teamId, fetchedAt, tasks }
+    const entry: TasksEntry = { teamId, fetchedAt, tasks: tasks.map(storedTask) }
     await this.kv.set(TASKS_KEY, entry as unknown as JsonValue)
   }
 
@@ -114,7 +130,7 @@ export class CacheStore {
   async patchTask(task: TaskSummary): Promise<void> {
     const e = await this.readEntry()
     if (!e || !e.tasks.some((t) => t.id === task.id)) return
-    e.tasks = e.tasks.map((t) => (t.id === task.id ? task : t))
+    e.tasks = e.tasks.map((t) => (t.id === task.id ? storedTask(task) : t))
     await this.kv.set(TASKS_KEY, e as unknown as JsonValue)
   }
 
@@ -139,7 +155,7 @@ export class CacheStore {
 
   async writeStatuses(listId: string, fetchedAt: number, statuses: StatusOption[]): Promise<void> {
     const map = await this.readStatusMap()
-    map[listId] = { fetchedAt, statuses }
+    map[listId] = { fetchedAt, statuses: statuses.map(withColor) }
     await this.kv.set(STATUSES_KEY, map as unknown as JsonValue)
   }
 

@@ -105,3 +105,16 @@ the `send-to-chat` action of the Tasks page source, the panel's `send.ts`, `Send
 Verdict: one new capability, narrower than the terminal access removed earlier; the host refuses
 commands, hidden characters, closed chats, terminal agents and unknown hosts; task text stays
 cleaned and fenced; nothing in ClickUp changes unless a template asks for it.
+
+## Re-check for 0.4.1: status colours (2026-11-25)
+
+Scope: `src/shared/status-color.ts`, the `color` fields in `mapper.ts`, `cache-store.ts`,
+`transition-service.ts`, the panel views that show statuses, and the Tasks page source
+(`items.ts`, `register.ts`).
+
+| Area | Finding | Risk |
+|---|---|---|
+| Untrusted colour | ClickUp's `color` is kept only when it matches `^#(?:[0-9a-fA-F]{3}\|[0-9a-fA-F]{6})$` exactly (no names, `rgb()`, `url()`, spaces, `;`, newlines or bidi characters), normalized to `#rrggbb`; anything else becomes `null` at the mapper. Every reader checks it again (`statusColor`), including values read back from plugin storage. Tests feed `url()`, `;`, `}`, `</style>`, newlines and non-strings. | None |
+| Where it goes | The panel never uses the hex in output: it picks one of nine fixed circle characters from it. The Tasks page gets the checked hex as a JSON field (`color`); the current Overhedge renderer drops it, and the proposed renderer change would use it only in React `style` objects (as Linear's pill does), never in class names, CSS text or HTML. | None |
+| Capabilities, network, storage | No change: no new capability, no new request (colours come in the task and List answers already fetched), no new storage key (the fallback colour is computed from the name, not stored). | None |
+

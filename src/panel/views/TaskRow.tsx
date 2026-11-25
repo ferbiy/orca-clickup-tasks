@@ -3,6 +3,7 @@ import { Badge, Collapsible, List, ListItem, Row, Stack, Text } from 'orca'
 import * as api from '../api'
 import type { TaskGroup } from '../state'
 import { dueLabel, priorityLabel, priorityTone } from '../../shared/display'
+import { statusLabel } from '../../shared/status-color'
 import type { TaskLink, TaskSummary } from '../../shared/model'
 
 function runBadge(link: TaskLink | undefined) {
@@ -41,7 +42,7 @@ export function TaskGroups({ groups, links, showLocation = true }: { groups: rea
   return (
     <Stack gap="sm">
       {groups.map((g) => (
-        <Collapsible key={g.status} defaultOpen title={`${sentenceCase(g.status)} · ${g.tasks.length}`}>
+        <Collapsible key={g.status} defaultOpen title={`${statusLabel({ name: sentenceCase(g.status), color: g.color })} · ${g.tasks.length}`}>
           <List label={g.status}>
             {g.tasks.map((t) => (
               <TaskRow key={t.id} task={t} link={links.get(t.id)} showLocation={showLocation} />

@@ -11,7 +11,7 @@ export function taskDetail(overrides: Partial<TaskDetail> = {}): TaskDetail {
     id: '86c1x2a',
     customId: null,
     name: 'Migrate billing webhooks to v2',
-    status: { name: 'to do', type: 'open' },
+    status: { name: 'to do', type: 'open', color: '#d3d3d3' },
     priority: 'high',
     dueDate: null,
     url: 'https://app.clickup.com/t/86c1x2a',
@@ -37,10 +37,10 @@ export function taskDetail(overrides: Partial<TaskDetail> = {}): TaskDetail {
 }
 
 export const STATUSES: StatusOption[] = [
-  { name: 'to do', type: 'open', order: 0 },
-  { name: 'in progress', type: 'custom', order: 1 },
-  { name: 'review', type: 'custom', order: 2 },
-  { name: 'complete', type: 'closed', order: 3 }
+  { name: 'to do', type: 'open', order: 0, color: '#d3d3d3' },
+  { name: 'in progress', type: 'custom', order: 1, color: '#4194f6' },
+  { name: 'review', type: 'custom', order: 2, color: '#a875ff' },
+  { name: 'complete', type: 'closed', order: 3, color: '#6bc950' }
 ]
 
 /** Records calls; behaviour is set per test through the public fields. */

@@ -6,6 +6,7 @@ import * as edit from '../../edit'
 import * as s from '../../state'
 import type { SubtaskRef, TaskDetail } from '../../../shared/model'
 import { SectionTitle } from './shared'
+import { statusLabel } from '../../../shared/status-color'
 
 function SubtaskRow({ task, sub }: { task: TaskDetail; sub: SubtaskRef }) {
   const busy = read(s.saving).includes('subtasks')
@@ -15,7 +16,7 @@ function SubtaskRow({ task, sub }: { task: TaskDetail; sub: SubtaskRef }) {
   return (
     <Row gap="xs" align="center">
       <Checkbox
-        label={`${sub.name} · ${sub.status.name}`}
+        label={`${sub.name} · ${statusLabel(sub.status)}`}
         checked={done}
         disabled={locked || busy || target === null}
         onChange={() => edit.toggleSubtask(task.id, sub.id)}

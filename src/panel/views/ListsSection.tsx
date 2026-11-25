@@ -4,6 +4,7 @@ import { Box, Button, Callout, Checkbox, Collapsible, Row, Select, Skeleton, Sta
 import type { FolderRef, ListRef, ListStatusMapping, Scope, SpaceRef, StatusOverride } from '../../shared/model'
 import * as api from '../api'
 import * as s from '../state'
+import { statusLabel } from '../../shared/status-color'
 
 function sameScope(a: Scope, b: Scope): boolean {
   const key = (x: Scope) =>
@@ -116,7 +117,7 @@ function Mapping(props: { mapping: ListStatusMapping }) {
     return [
       { value: 'auto', label: autoLabel },
       { value: 'none', label: "Don't change the status" },
-      ...mapping.statuses.map((st) => ({ value: `status:${st.name}`, label: `${st.name} (${st.type})` }))
+      ...mapping.statuses.map((st) => ({ value: `status:${st.name}`, label: `${statusLabel(st)} (${st.type})` }))
     ]
   }
   return (

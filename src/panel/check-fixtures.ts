@@ -8,12 +8,12 @@ const DAY = 86_400_000
 const HOUR = 3_600_000
 
 export const checkTasks: TaskSummary[] = [
-  { ...base, id: '86c0p1f', createdAt: today, timeEstimateMs: null, name: 'Fix login redirect loop on Safari', status: { name: 'in progress', type: 'custom' }, priority: 'urgent', url: 'https://app.clickup.com/t/86c0p1f', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
-  { ...base, id: '86c0q8r', createdAt: today, timeEstimateMs: HOUR, name: 'Rate-limit public search API', status: { name: 'in progress', type: 'custom' }, priority: 'high', url: 'https://app.clickup.com/t/86c0q8r', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' },
-  { ...base, id: '86c1x2a', createdAt: today - DAY, timeEstimateMs: null, name: 'Migrate billing webhooks to v2', status: { name: 'to do', type: 'open' }, priority: 'high', url: 'https://app.clickup.com/t/86c1x2a', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' },
-  { ...base, id: '86c1y7m', createdAt: today - 3 * DAY, timeEstimateMs: 2 * HOUR, name: 'Add CSV export to reports', status: { name: 'to do', type: 'open' }, priority: 'normal', url: 'https://app.clickup.com/t/86c1y7m', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
-  { ...base, id: '86c1z3k', createdAt: today - DAY, timeEstimateMs: HOUR, name: 'Dark mode for settings page', status: { name: 'to do', type: 'open' }, priority: 'low', url: 'https://app.clickup.com/t/86c1z3k', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
-  { ...base, id: '86c0z7k', createdAt: today, timeEstimateMs: null, name: 'Dedupe Stripe customer records', status: { name: 'review', type: 'custom' }, priority: null, url: 'https://app.clickup.com/t/86c0z7k', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' }
+  { ...base, id: '86c0p1f', createdAt: today, timeEstimateMs: null, name: 'Fix login redirect loop on Safari', status: { name: 'in progress', type: 'custom', color: '#4194f6' }, priority: 'urgent', url: 'https://app.clickup.com/t/86c0p1f', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
+  { ...base, id: '86c0q8r', createdAt: today, timeEstimateMs: HOUR, name: 'Rate-limit public search API', status: { name: 'in progress', type: 'custom', color: '#4194f6' }, priority: 'high', url: 'https://app.clickup.com/t/86c0q8r', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' },
+  { ...base, id: '86c1x2a', createdAt: today - DAY, timeEstimateMs: null, name: 'Migrate billing webhooks to v2', status: { name: 'to do', type: 'open', color: '#d3d3d3' }, priority: 'high', url: 'https://app.clickup.com/t/86c1x2a', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' },
+  { ...base, id: '86c1y7m', createdAt: today - 3 * DAY, timeEstimateMs: 2 * HOUR, name: 'Add CSV export to reports', status: { name: 'to do', type: 'open', color: '#d3d3d3' }, priority: 'normal', url: 'https://app.clickup.com/t/86c1y7m', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
+  { ...base, id: '86c1z3k', createdAt: today - DAY, timeEstimateMs: HOUR, name: 'Dark mode for settings page', status: { name: 'to do', type: 'open', color: '#d3d3d3' }, priority: 'low', url: 'https://app.clickup.com/t/86c1z3k', list: { id: 'L-web', name: 'Sprint 42' }, location: 'Web App › Sprint 42' },
+  { ...base, id: '86c0z7k', createdAt: today, timeEstimateMs: null, name: 'Dedupe Stripe customer records', status: { name: 'review', type: 'custom', color: '#a875ff' }, priority: null, url: 'https://app.clickup.com/t/86c0z7k', list: { id: 'L-api', name: 'Backlog' }, location: 'API › Backlog' }
 ]
 
 // ── Browse and rich detail ─────────────────────────────────────────────────
@@ -46,8 +46,8 @@ export const checkDetail: TaskDetail = {
     }
   ],
   subtasks: [
-    { id: '86c1x2b', name: 'Add v2 signature check', status: { name: 'in progress', type: 'custom' } },
-    { id: '86c1x2c', name: 'Write the migration note', status: { name: 'to do', type: 'open' } }
+    { id: '86c1x2b', name: 'Add v2 signature check', status: { name: 'in progress', type: 'custom', color: '#4194f6' } },
+    { id: '86c1x2c', name: 'Write the migration note', status: { name: 'to do', type: 'open', color: '#d3d3d3' } }
   ],
   tags: ['billing', 'backend'],
   assignees: [{ id: 'u1', name: 'Linh Nguyen', initials: 'LN' }, { id: 'u2', name: 'Sam Reyes', initials: 'SR' }],
@@ -71,9 +71,9 @@ export const checkComments: TaskComment[] = [
 ]
 
 export const checkStatuses: StatusOption[] = [
-  { name: 'to do', type: 'open', order: 0 },
-  { name: 'in progress', type: 'custom', order: 1 },
-  { name: 'review', type: 'custom', order: 2 }
+  { name: 'to do', type: 'open', order: 0, color: '#d3d3d3' },
+  { name: 'in progress', type: 'custom', order: 1, color: '#4194f6' },
+  { name: 'review', type: 'custom', order: 2, color: '#a875ff' }
 ]
 
 export const checkOptions: StartOptions = {

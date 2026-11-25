@@ -1,6 +1,6 @@
 // Pure display helpers for the panel. No Orca runtime import (types only), no Node.
 import type { Tone } from 'orca'
-import type { Priority, StatusOption } from './model'
+import type { Priority } from './model'
 
 /** urgent → danger, high → warning, normal/low/null → neutral. */
 export function priorityTone(priority: Priority | null): Tone {
@@ -23,13 +23,6 @@ export function priorityLabel(priority: Priority | null): string | null {
     default:
       return null
   }
-}
-
-/** open → neutral, custom → accent, done → success, closed → neutral. */
-export function statusTone(type: StatusOption['type']): Tone {
-  if (type === 'custom') return 'accent'
-  if (type === 'done') return 'success'
-  return 'neutral'
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

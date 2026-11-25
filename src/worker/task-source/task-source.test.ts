@@ -11,8 +11,8 @@ import { LinkStore } from '../stores/link-store'
 import { PrefsStore } from '../stores/prefs-store'
 import { FakeGateway, FakeTracker, manualClock, MemorySecrets, recordingPoster, taskDetail } from '../testing/fakes'
 import { MemoryKeyValueStore } from '../testing/memory-kv'
-import { detailMarkdown, inline, projectValue, statusTone, toItem } from './items'
-import { failureMessage, parseListParams, registerTaskSource } from './register'
+import { clamp, detailActions, detailMarkdown, inline, projectValue, statusTone, statusText, toItem } from './items'
+import { failureMessage, parseListParams, parseStyle, registerTaskSource } from './register'
 import { PAGE_REUSE_MS, TaskSourceService } from './task-source-service'
 
 function world() {
@@ -318,6 +318,42 @@ describe('task source items and commands', () => {
     assert.equal(inline('a\n# b [c](d)'), 'a \\# b \\[c\\]\\(d\\)')
   })
 
+  test('status colour: always sent as checked hex; circle in the label unless the host draws colour', () => {
+    const task = taskDetail({ status: { name: 'in progress', type: 'custom', color: '#4194F6' } })
+    const dots = toItem(task)
+    assert.deepEqual(dots.status, { label: '🔵 in progress', tone: 'active', color: '#4194f6' })
+    const plain = toItem(task, { hostDrawsColor: true })
+    assert.deepEqual(plain.status, { label: 'in progress', tone: 'active', color: '#4194f6' })
+    // A bad or missing ClickUp colour never reaches the host: the pinned fallback goes instead.
+    const bad = toItem(taskDetail({ status: { name: 'odd', type: 'custom', color: 'url(javascript:x)' } }))
+    assert.match(bad.status?.color ?? '', /^#[0-9a-f]{6}$/)
+    // The schema's 64-unit limit holds with the circle and astral characters.
+    const long = statusText({ name: '😀'.repeat(60), color: '#4194f6' }, 64, { hostDrawsColor: false })
+    assert.ok(long.length <= 64, String(long.length))
+    assert.equal(clamp('ab😀c', 4), 'ab…')
+    assert.equal(clamp('abc', 3), 'abc')
+  })
+
+  test('status menu options carry colour; values stay the plain names', () => {
+    const statuses = [{ name: 'to do', type: 'open' as const, order: 0, color: '#d3d3d3' }, { name: 'review', type: 'custom' as const, order: 1, color: null }]
+    const [menu] = detailActions({ task: taskDetail(), statuses, projects: [], rememberedProjectId: null, agentLabel: 'Claude' })
+    assert.equal(menu?.id, 'set-status')
+    assert.equal(menu?.value, 'to do')
+    assert.deepEqual(menu?.options?.map((o) => o.value), ['to do', 'review'])
+    assert.equal(menu?.options?.[0]?.label, '⚪ to do')
+    assert.equal(menu?.options?.[0]?.color, '#d3d3d3')
+    assert.match(menu?.options?.[1]?.color ?? '', /^#[0-9a-f]{6}$/)
+    const [plain] = detailActions({ task: taskDetail(), statuses, projects: [], rememberedProjectId: null, agentLabel: 'Claude', style: { hostDrawsColor: true } })
+    assert.equal(plain?.options?.[0]?.label, 'to do')
+  })
+
+  test('host features: only an exact "status-color" entry switches labels to plain', () => {
+    assert.equal(parseStyle({ features: ['status-color'] }).hostDrawsColor, true)
+    assert.equal(parseStyle({ features: 'status-color' }).hostDrawsColor, false)
+    assert.equal(parseStyle({ features: ['status-colour', 1] }).hostDrawsColor, false)
+    assert.equal(parseStyle(undefined).hostDrawsColor, false)
+  })
+
   test('the description is capped; an empty one says so', () => {
     assert.match(detailMarkdown(taskDetail({ description: '' }), []), /_No description\._/)
     assert.ok(detailMarkdown(taskDetail({ description: 'y'.repeat(200_000) }), []).length < 101_000)
@@ -326,7 +362,7 @@ describe('task source items and commands', () => {
   test('palette runs (no Tasks page arguments) do nothing; failures read well', async () => {
     assert.equal(parseListParams(undefined), null)
     assert.equal(parseListParams({ query: 'x' }), null)
-    assert.deepEqual(parseListParams({ query: 'x', filters: { list: 'L1', bad: 3 }, cursor: 'c:100' }), { query: 'x', filters: { list: 'L1' }, cursor: 'c:100' })
+    assert.deepEqual(parseListParams({ query: 'x', filters: { list: 'L1', bad: 3 }, cursor: 'c:100' }), { query: 'x', filters: { list: 'L1' }, cursor: 'c:100', style: { hostDrawsColor: false } })
     assert.equal(failureMessage(new PluginError('rate_limited', 'x', 12_500)), 'ClickUp asks to slow down; try again in 13 s.')
     assert.match(failureMessage(new PluginError('auth_invalid', 'x')), /Sign in again/)
 

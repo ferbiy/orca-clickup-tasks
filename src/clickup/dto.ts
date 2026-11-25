@@ -4,6 +4,8 @@ export interface StatusDto {
   status: string
   type: string | null
   orderindex: number | null
+  /** Checked `#rrggbb` (parseHexColor), or null when ClickUp sent none or something else. */
+  color: string | null
 }
 
 export interface PersonDto {

@@ -4,15 +4,32 @@
 import { priorityLabel } from '../../shared/display'
 import type { ProjectOption, StatusOption, TaskDetail, TaskLink, TaskSummary } from '../../shared/model'
 import type { SendState } from '../../shared/send-template'
+import { colorDot, statusColor } from '../../shared/status-color'
 
 export const TASK_SOURCE_ID = 'clickup'
 
 export type ItemTone = 'open' | 'active' | 'blocked' | 'review' | 'done' | 'closed'
 
+/**
+ * The host feature a Tasks page advertises (in each command's `features` argument) when it draws a
+ * status's `color` itself. Without it the plugin puts the colour's circle (🟣) in the label instead,
+ * and still sends `color`: the Overhedge schema drops unknown fields, so it is harmless there.
+ */
+export const STATUS_COLOR_FEATURE = 'status-color'
+
+/** How statuses are written for the host that asked. */
+export interface StatusStyle {
+  /** True when the host draws `color` (STATUS_COLOR_FEATURE): labels stay plain names. */
+  hostDrawsColor: boolean
+}
+
+export const DOT_LABELS: StatusStyle = { hostDrawsColor: false }
+
 export interface SourceItem {
   id: string
   title: string
-  status?: { label: string; tone: ItemTone }
+  /** `color`: checked lower-case `#rrggbb` (ClickUp's, else the pinned fallback). */
+  status?: { label: string; tone: ItemTone; color: string }
   priority?: string
   owner?: string
   labels?: string[]
@@ -24,6 +41,8 @@ export interface SourceItem {
 export interface SourceOption {
   value: string
   label: string
+  /** Status options only: checked `#rrggbb`, for a host that draws it. */
+  color?: string
 }
 
 export interface SourceFilter {
@@ -50,10 +69,31 @@ export interface SourceDetail {
 /** Longest description put into the detail body (the schema allows 512 KiB). */
 export const BODY_DESCRIPTION_MAX = 100_000
 
-/** Cuts to `max` characters (on a code point), '' stays ''. */
+/**
+ * Cuts to at most `max` UTF-16 units (what the renderer's schema counts), never inside a code point;
+ * a cut text ends with '…'. '' stays ''.
+ */
 export function clamp(text: string, max: number): string {
-  const chars = Array.from(text)
-  return chars.length <= max ? text : `${chars.slice(0, Math.max(0, max - 1)).join('')}…`
+  if (text.length <= max) return text
+  let out = ''
+  for (const ch of text) {
+    if (out.length + ch.length > max - 1) break
+    out += ch
+  }
+  return `${out}…`
+}
+
+/** A status label within `max`: the name, after its colour's circle unless the host draws colours. */
+export function statusText(status: { name: string; color?: string | null }, max: number, style: StatusStyle): string {
+  const name = status.name || '?'
+  if (style.hostDrawsColor) return clamp(name, max)
+  const dot = colorDot(statusColor(status))
+  return `${dot} ${clamp(name, max - dot.length - 1)}`
+}
+
+/** A status option of a menu or filter: value is the plain name, `color` the checked colour. */
+export function statusOption(status: { name: string; color?: string | null }, style: StatusStyle): SourceOption {
+  return { value: status.name, label: statusText(status, 128, style), color: statusColor(status) }
 }
 
 /**
@@ -80,13 +120,13 @@ export function taskRef(task: { id: string; customId: string | null }): string {
   return task.customId || `CU-${task.id}`
 }
 
-export function toItem(task: TaskSummary): SourceItem {
+export function toItem(task: TaskSummary, style: StatusStyle = DOT_LABELS): SourceItem {
   const priority = priorityLabel(task.priority)
   const title = task.customId ? `${task.customId} ${task.name}` : task.name
   return {
     id: task.id,
     title: clamp(title.trim() || task.id, 512),
-    status: { label: clamp(task.status.name || '?', 64), tone: statusTone(task.status) },
+    status: { label: statusText(task.status, 64, style), tone: statusTone(task.status), color: statusColor(task.status) },
     ...(priority ? { priority } : {}),
     ...(task.updatedAt > 0 ? { updatedAt: new Date(task.updatedAt).toISOString() } : {}),
     ...(task.location ? { summary: clamp(task.location, 1024) } : {}),
@@ -94,11 +134,11 @@ export function toItem(task: TaskSummary): SourceItem {
   }
 }
 
-export function toDetailItem(task: TaskDetail): SourceItem {
+export function toDetailItem(task: TaskDetail, style: StatusStyle = DOT_LABELS): SourceItem {
   const owners = task.assignees.map((a) => a.name).filter((n) => n !== '')
   const labels = task.tags.map((t) => clamp(t, 64)).filter((t) => t !== '').slice(0, 16)
   return {
-    ...toItem(task),
+    ...toItem(task, style),
     ...(owners.length > 0 ? { owner: clamp(owners.join(', '), 256) } : {}),
     ...(labels.length > 0 ? { labels } : {})
   }
@@ -169,6 +209,7 @@ export function detailActions(input: {
   projects: readonly ProjectOption[]
   rememberedProjectId: string | null
   agentLabel: string
+  style?: StatusStyle
 }): SourceAction[] {
   const actions: SourceAction[] = []
   const projects = [...input.projects].sort(
@@ -191,7 +232,7 @@ export function detailActions(input: {
       id: 'set-status',
       label: 'Status',
       ...(current ? { value: current.name } : {}),
-      options: statuses.map((s) => ({ value: s.name, label: clamp(s.name, 128) }))
+      options: statuses.map((s) => statusOption(s, input.style ?? DOT_LABELS))
     })
   }
   return actions

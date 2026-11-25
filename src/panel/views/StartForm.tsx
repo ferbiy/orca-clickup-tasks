@@ -4,6 +4,7 @@ import { Button, Callout, Checkbox, Code, Collapsible, Input, Row, Select, Spinn
 import type { TaskContextMode } from '../../shared/model'
 import * as api from '../api'
 import * as s from '../state'
+import { statusLabel } from '../../shared/status-color'
 
 const CONTEXT_OPTIONS: { value: TaskContextMode; label: string }[] = [
   { value: 'link-and-snapshot', label: 'Link + snapshot' },
@@ -59,7 +60,7 @@ export function StartForm() {
       </Stack>
       {options.inProgressStatus !== null ? (
         <Checkbox
-          label={`Move task to “${options.inProgressStatus}” on start`}
+          label={`Move task to “${statusLabel({ name: options.inProgressStatus, color: read(s.detail)?.statuses?.find((st) => st.name === options.inProgressStatus)?.color })}” on start`}
           description={options.inProgressWhy}
           checked={form.moveToInProgress}
           onChange={(moveToInProgress) => api.patchStartForm({ moveToInProgress })}

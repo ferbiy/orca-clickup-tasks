@@ -8,8 +8,7 @@ import {
   formatDuration,
   priorityLabel,
   priorityTone,
-  shortDate,
-  statusTone
+  shortDate
 } from './display'
 
 describe('tones and labels', () => {
@@ -26,12 +25,6 @@ describe('tones and labels', () => {
     assert.equal(priorityLabel('normal'), 'Normal')
     assert.equal(priorityLabel('low'), 'Low')
     assert.equal(priorityLabel(null), null)
-  })
-  test('statusTone', () => {
-    assert.equal(statusTone('open'), 'neutral')
-    assert.equal(statusTone('custom'), 'accent')
-    assert.equal(statusTone('done'), 'success')
-    assert.equal(statusTone('closed'), 'neutral')
   })
 })
 

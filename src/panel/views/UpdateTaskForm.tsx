@@ -2,6 +2,7 @@
 import { Button, Heading, Row, Select, Spinner, Stack, Text, Textarea, read } from 'orca'
 import * as api from '../api'
 import * as s from '../state'
+import { statusLabel } from '../../shared/status-color'
 
 export function UpdateTaskForm() {
   const detail = read(s.detail)
@@ -14,7 +15,7 @@ export function UpdateTaskForm() {
       <Select
         label="Move to status"
         value={form.status}
-        options={statuses.map((st) => ({ value: st.name, label: st.name }))}
+        options={statuses.map((st) => ({ value: st.name, label: statusLabel(st) }))}
         onChange={(status) => api.patchUpdateForm({ status })}
       />
       <Textarea label="Comment on task" rows={6} value={form.comment} onChange={(comment) => api.patchUpdateForm({ comment })} />

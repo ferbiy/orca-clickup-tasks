@@ -5,6 +5,7 @@ import * as s from '../../state'
 import * as api from '../../api'
 import { dueLabel, formatDuration, priorityLabel } from '../../../shared/display'
 import { formatDateInput } from '../../../shared/edit'
+import { statusLabel } from '../../../shared/status-color'
 import type { TaskDetail } from '../../../shared/model'
 import { SectionTitle } from './shared'
 
@@ -23,8 +24,8 @@ function PropRow({ label, children }: { label: string; children?: unknown }) {
 
 function StatusRow({ task, detail }: { task: TaskDetail; detail: s.DetailState }) {
   const locked = edit.isLocked(task.id, 'status')
-  const options = (detail.statuses ?? []).map((st) => ({ value: st.name, label: st.name }))
-  if (!options.some((o) => o.value === task.status.name)) options.unshift({ value: task.status.name, label: task.status.name })
+  const options = (detail.statuses ?? []).map((st) => ({ value: st.name, label: statusLabel(st) }))
+  if (!options.some((o) => o.value === task.status.name)) options.unshift({ value: task.status.name, label: statusLabel(task.status) })
   return (
     <PropRow label="Status">
       <Select

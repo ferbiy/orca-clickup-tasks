@@ -1,5 +1,6 @@
 // The only place that narrows unknown JSON from ClickUp. Small guards, no blind casts.
 import { PluginError } from '../shared/errors'
+import { parseHexColor } from '../shared/status-color'
 import type {
   Attachment,
   ChecklistItem,
@@ -138,11 +139,12 @@ function statusType(value: string | null): StatusOption['type'] {
 }
 
 function toStatusDto(raw: unknown): StatusDto | null {
-  if (typeof raw === 'string') return { status: raw, type: null, orderindex: null }
+  if (typeof raw === 'string') return { status: raw, type: null, orderindex: null, color: null }
   if (!isRecord(raw)) return null
   const status = strOf(raw.status)
   if (status === null) return null
-  return { status, type: strOf(raw.type), orderindex: numOf(raw.orderindex) }
+  // Untrusted: kept only as a strict hex, never passed on as ClickUp sent it.
+  return { status, type: strOf(raw.type), orderindex: numOf(raw.orderindex), color: parseHexColor(raw.color) }
 }
 
 export function parseStatuses(json: unknown): StatusOption[] {
@@ -151,7 +153,7 @@ export function parseStatuses(json: unknown): StatusOption[] {
   arrayOf(json.statuses).forEach((raw, index) => {
     const dto = toStatusDto(raw)
     if (dto === null) return
-    out.push({ name: dto.status, type: statusType(dto.type), order: dto.orderindex ?? index })
+    out.push({ name: dto.status, type: statusType(dto.type), order: dto.orderindex ?? index, color: dto.color })
   })
   return out.sort((a, b) => a.order - b.order)
 }
@@ -334,7 +336,7 @@ export function mapTaskSummary(dto: TaskDto): TaskSummary {
     id: dto.id,
     customId: dto.custom_id,
     name: dto.name,
-    status: { name: dto.status.status, type: statusType(dto.status.type) },
+    status: { name: dto.status.status, type: statusType(dto.status.type), color: dto.status.color },
     priority: priorityOf(dto.priority),
     dueDate: numOf(dto.due_date),
     url: dto.url ?? `https://app.clickup.com/t/${dto.id}`,
@@ -474,7 +476,7 @@ export function mapTaskDetail(dto: TaskDto): TaskDetail {
     subtasks: dto.subtasks.map((s) => ({
       id: s.id,
       name: s.name,
-      status: { name: s.status?.status ?? '', type: statusType(s.status?.type ?? null) }
+      status: { name: s.status?.status ?? '', type: statusType(s.status?.type ?? null), color: s.status?.color ?? null }
     })),
     tags: dto.tags,
     assignees: dto.assignees.map(mapPerson),

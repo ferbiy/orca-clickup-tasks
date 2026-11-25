@@ -14,6 +14,18 @@ export interface StatusOption {
   type: 'open' | 'unstarted' | 'custom' | 'done' | 'closed'
   /** Position in the List's workflow, lowest first. */
   order: number
+  /**
+   * ClickUp's colour for the status as lower-case `#rrggbb`, already checked by
+   * `shared/status-color.ts`; null or missing (older caches) means "use the pinned fallback".
+   */
+  color?: string | null
+}
+
+/** A task's status as rows and the detail show it. `color` as in StatusOption. */
+export interface TaskStatus {
+  name: string
+  type: StatusOption['type']
+  color?: string | null
 }
 
 /** Slim row for the task list. Keep it small: the list answer must stay well under 1 MiB. */
@@ -22,7 +34,7 @@ export interface TaskSummary {
   /** Custom task id (e.g. "ENG-142") when the Workspace uses them, else null. */
   customId: string | null
   name: string
-  status: { name: string; type: StatusOption['type'] }
+  status: TaskStatus
   priority: Priority | null
   /** Epoch ms, or null. */
   dueDate: number | null
@@ -57,7 +69,7 @@ export interface Checklist {
 export interface SubtaskRef {
   id: string
   name: string
-  status: { name: string; type: StatusOption['type'] }
+  status: TaskStatus
 }
 
 /** A ClickUp member as the panel shows them. */
@@ -393,6 +405,8 @@ export interface StatusChange {
   /** Why (shown on the run card). */
   note: string
   at: number
+  /** The set status's checked colour (StatusOption.color), when it was known; links before 0.4.1 have none. */
+  color?: string | null
 }
 
 /** The link between a ClickUp task and the Orca workspace started for it. */

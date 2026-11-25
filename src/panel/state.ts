@@ -314,6 +314,8 @@ export function findList(tree: BrowseTree, key: string): { id: string; name: str
 export interface TaskGroup {
   status: string
   type: TaskSummary['status']['type']
+  /** The status's ClickUp colour as its first task carries it (checked again when drawn). */
+  color: string | null
   tasks: TaskSummary[]
 }
 
@@ -325,7 +327,7 @@ export function groupTasks(tasks: readonly TaskSummary[], f: TaskFilter, now: nu
   for (const t of tasks) {
     if (!matchesFilter(t, f, now)) continue
     const key = t.status.name.toLowerCase()
-    const group = groups.get(key) ?? { status: t.status.name, type: t.status.type, tasks: [] }
+    const group = groups.get(key) ?? { status: t.status.name, type: t.status.type, color: t.status.color ?? null, tasks: [] }
     group.tasks.push(t)
     groups.set(key, group)
   }

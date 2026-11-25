@@ -112,7 +112,7 @@ function applyPatch(task: TaskDetail, patch: TaskPatch): TaskDetail {
   if (patch.markdownDescription !== undefined) next.description = patch.markdownDescription
   if (patch.status !== undefined) {
     const found = read(s.detail)?.statuses?.find((st) => st.name === patch.status)
-    next.status = { name: patch.status, type: found?.type ?? task.status.type }
+    next.status = { name: patch.status, type: found?.type ?? task.status.type, color: found?.color ?? null }
   }
   if (patch.priority !== undefined) next.priority = patch.priority
   if (patch.dueDate !== undefined) next.dueDate = patch.dueDate === null ? null : patch.dueDate.at
@@ -418,11 +418,13 @@ async function doSaveSubtaskStatus(parentId: string, subtaskId: string, status: 
   if (!snapshot || snapshot.id !== parentId) return
   const field: EditableField = 'subtasks'
   update(s.saving, (all) => [...all.filter((f) => f !== field), field])
-  const type: StatusOption['type'] = read(s.detail)?.statuses?.find((st) => st.name === status)?.type ?? 'open'
+  const found = read(s.detail)?.statuses?.find((st) => st.name === status)
+  const type: StatusOption['type'] = found?.type ?? 'open'
+  const color = found?.color ?? null
   try {
     update(s.detail, (d) =>
       d && d.taskId === parentId
-        ? { ...d, task: { ...snapshot, subtasks: snapshot.subtasks.map((x) => (x.id === subtaskId ? { ...x, status: { name: status, type } } : x)) } }
+        ? { ...d, task: { ...snapshot, subtasks: snapshot.subtasks.map((x) => (x.id === subtaskId ? { ...x, status: { name: status, type, color } } : x)) } }
         : d
     )
     const fresh = await call('tasks.patch', { taskId: subtaskId, patch: { status }, answerTaskId: parentId })

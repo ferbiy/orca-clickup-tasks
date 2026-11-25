@@ -4,7 +4,7 @@
 // page's arguments does nothing (no ClickUp request) or says what the command is for.
 import type { OrcaWorkerApi } from 'orca/worker'
 import { messageOf, PluginError } from '../../shared/errors'
-import { TASK_SOURCE_ID } from './items'
+import { STATUS_COLOR_FEATURE, TASK_SOURCE_ID, type StatusStyle } from './items'
 import type { ListParams, TaskSourceService } from './task-source-service'
 
 const PALETTE_HINT = "This command feeds the ClickUp tab of Orca's Tasks page (Overhedge build); open that page instead."
@@ -18,6 +18,15 @@ function text(args: unknown, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
+/**
+ * What the asking host can draw, from its optional `features` list (strings). Unknown or missing:
+ * today's Overhedge Tasks page, which shows labels as text, so the colour goes into the label.
+ */
+export function parseStyle(args: unknown): StatusStyle {
+  const features = field(args, 'features')
+  return { hostDrawsColor: Array.isArray(features) && features.includes(STATUS_COLOR_FEATURE) }
+}
+
 /** The Tasks page always sends `query` and `filters`; anything else is a palette run. */
 export function parseListParams(args: unknown): ListParams | null {
   const query = text(args, 'query')
@@ -26,7 +35,7 @@ export function parseListParams(args: unknown): ListParams | null {
   const filters: Record<string, string> = {}
   for (const [key, value] of Object.entries(raw)) if (typeof value === 'string') filters[key] = value
   const cursor = text(args, 'cursor')
-  return { query: query.slice(0, 256), filters, ...(cursor ? { cursor } : {}) }
+  return { query: query.slice(0, 256), filters, ...(cursor ? { cursor } : {}), style: parseStyle(args) }
 }
 
 /** What the person reads in the Tasks page for a failure: the plugin's own message, with the wait for a 429. */
@@ -67,13 +76,13 @@ export function registerTaskSource(
   command('get', async (args) => {
     const itemId = text(args, 'itemId')
     if (itemId === undefined) throw new PluginError('invalid_input', PALETTE_HINT)
-    return deps.source.get(itemId)
+    return deps.source.get(itemId, parseStyle(args))
   })
   command('action', async (args) => {
     const itemId = text(args, 'itemId')
     const actionId = text(args, 'actionId')
     if (itemId === undefined || actionId === undefined) throw new PluginError('invalid_input', PALETTE_HINT)
     const value = text(args, 'value')
-    return deps.source.action({ itemId, actionId, ...(value !== undefined ? { value } : {}) })
+    return deps.source.action({ itemId, actionId, ...(value !== undefined ? { value } : {}), style: parseStyle(args) })
   })
 }

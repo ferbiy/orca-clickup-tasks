@@ -4,6 +4,7 @@ import { Button, Callout, Card, Code, Collapsible, RelativeTime, Row, Spinner, S
 import * as api from '../api'
 import * as s from '../state'
 import type { TaskLink } from '../../shared/model'
+import { colorDot, statusColor } from '../../shared/status-color'
 
 function heading(link: TaskLink, agent: string): string {
   const { state, problem } = link.run
@@ -42,9 +43,12 @@ function PromptSection({ link }: { link: TaskLink }) {
 }
 
 function StatusLine({ label, change }: { label: string; change: NonNullable<TaskLink['onStart']> }) {
+  // A move shows the new status's colour: the one recorded with it, else the List's (links before 0.4.1).
+  const known = change.status === null ? null : read(s.detail)?.statuses?.find((st) => st.name === change.status)
+  const dot = change.status === null ? '' : `${colorDot(statusColor({ name: change.status, color: change.color ?? known?.color }))} `
   return (
     <Text size="xs" muted>
-      {`${label}: ${change.note}`}
+      {`${label}: ${dot}${change.note}`}
     </Text>
   )
 }

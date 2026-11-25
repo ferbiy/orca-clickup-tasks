@@ -38,7 +38,7 @@ describe('mapper', () => {
       id: '86c1x2a',
       customId: 'ENG-142',
       name: 'Migrate billing webhooks',
-      status: { name: 'in progress', type: 'custom' },
+      status: { name: 'in progress', type: 'custom', color: '#4194f6' },
       priority: 'high',
       dueDate: 1795000000000,
       url: 'https://app.clickup.com/t/86c1x2a',
@@ -68,7 +68,7 @@ describe('mapper', () => {
     assert.equal(summary.customId, null)
     assert.equal(summary.parentId, '86c1x2a')
     assert.equal(summary.location, 'Inbox')
-    assert.deepEqual(summary.status, { name: 'to do', type: 'open' })
+    assert.deepEqual(summary.status, { name: 'to do', type: 'open', color: null })
   })
 
   test('unknown status types map to custom, unknown priorities to null', () => {
@@ -95,7 +95,7 @@ describe('mapper', () => {
       }
     ])
     assert.deepEqual(detail.subtasks, [
-      { id: '86c1x3b', name: 'Update webhook signature check', status: { name: 'to do', type: 'open' } }
+      { id: '86c1x3b', name: 'Update webhook signature check', status: { name: 'to do', type: 'open', color: null } }
     ])
     assert.deepEqual(detail.tags, ['billing', 'tech-debt'])
     assert.equal(mapTaskDetail(parseTask({ ...TASK_DETAIL, markdown_description: null })).description, 'Plain text description')
@@ -119,6 +119,22 @@ describe('mapper', () => {
       ]
     })
     assert.deepEqual(statuses.map((s) => s.type), ['open', 'unstarted', 'custom', 'custom'])
+  })
+
+  test('status colours: strict hex kept (lower-case #rrggbb), anything else dropped', () => {
+    const statuses = parseStatuses({
+      statuses: [
+        { status: 'a', type: 'open', orderindex: 0, color: '#D3D3D3' },
+        { status: 'b', type: 'custom', orderindex: 1, color: '#abc' },
+        { status: 'c', type: 'custom', orderindex: 2, color: 'red;background:url(https://x)' },
+        { status: 'd', type: 'custom', orderindex: 3, color: 42 },
+        { status: 'e', type: 'done', orderindex: 4 }
+      ]
+    })
+    assert.deepEqual(statuses.map((s) => s.color), ['#d3d3d3', '#aabbcc', null, null, null])
+    const task = mapTaskDetail(parseTask({ ...TASK_DETAIL, status: { status: 'x', type: 'custom', color: '#4194F6' }, subtasks: [{ id: 's1', name: 'n', status: { status: 'y', type: 'open', color: '</style>' } }] }))
+    assert.equal(task.status.color, '#4194f6')
+    assert.equal(task.subtasks[0]?.status.color, null)
   })
 
   test('user, teams and error body', () => {
