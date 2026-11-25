@@ -1,5 +1,6 @@
 // Reads and changes ClickUp tasks for the panel, behind a storage cache so the panel opens
 // instantly and ClickUp's ~100 requests/minute budget is spent only on explicit refreshes.
+// Only tasks of the chosen Lists (ScopeService) are listed, opened or handed to a start.
 import { PluginError } from '../../shared/errors'
 import type {
   CommentCursor,
@@ -17,9 +18,12 @@ import type {
 import type { Clock, PanelPoster } from '../ports'
 import type { CacheStore } from '../stores/cache-store'
 import type { AuthService } from './auth-service'
+import type { ScopeService } from './scope-service'
 
 export interface TaskServiceDeps {
   auth: AuthService
+  /** Set right after construction in worker.ts (the scope reads Space contents through this service). */
+  scope?: Pick<ScopeService, 'get' | 'isEmpty' | 'listIds' | 'assertList'>
   cache: CacheStore
   post: PanelPoster
   clock: Clock
@@ -44,6 +48,11 @@ export class TaskService {
   /** Recently fetched details, so start.options reuses what tasks.get just fetched. */
   private readonly recent = new Map<string, { at: number; task: TaskDetail }>()
 
+  /** The scope reads Space contents through this service, so it is attached after both exist. */
+  setScope(scope: NonNullable<TaskServiceDeps['scope']>): void {
+    this.deps.scope = scope
+  }
+
   constructor(private readonly deps: TaskServiceDeps) {
     this.staleAfterMs = deps.staleAfterMs ?? 5 * 60_000
     this.statusesMaxAgeMs = deps.statusesMaxAgeMs ?? 60 * 60_000
@@ -62,10 +71,12 @@ export class TaskService {
   /** Cached list; fetches when asked or when nothing is cached. Concurrent refreshes share one fetch. */
   async list(refresh: boolean): Promise<TaskListResult> {
     const { teamId } = await this.deps.auth.session()
+    const scope = this.requireScope()
+    if (scope.isEmpty(await scope.get())) return { tasks: [], fetchedAt: this.deps.clock(), stale: false, scopeEmpty: true }
     if (!refresh) {
       const cached = await this.deps.cache.readTasks(teamId)
       if (cached) {
-        return { ...cached, stale: this.deps.clock() - cached.fetchedAt > this.staleAfterMs }
+        return { ...cached, stale: this.deps.clock() - cached.fetchedAt > this.staleAfterMs, scopeEmpty: false }
       }
     }
     this.inFlight ??= this.fetchList().finally(() => {
@@ -85,6 +96,8 @@ export class TaskService {
     return this.shared(`task:${taskId}`, async () => {
       const tracker = await this.deps.auth.tracker()
       const task = await tracker.getTask(taskId)
+      // Refused before it is cached, shown or used: a task of a List that is not chosen.
+      await this.requireScope().assertList(task.list.id)
       this.remember(task)
       await this.deps.cache.patchTask(toSummary(task))
       return task
@@ -134,6 +147,7 @@ export class TaskService {
 
   /** One page of a List, always from ClickUp (Browse is an explicit look, not a background list). */
   async listTasks(listId: string, page: number, includeClosed: boolean): Promise<ListTasksPage> {
+    await this.requireScope().assertList(listId)
     const tracker = await this.deps.auth.tracker()
     return this.shared(`list:${listId}:${page}:${includeClosed}`, async () => {
       const result = await tracker.listTasksInList(listId, { page, includeClosed })
@@ -180,11 +194,19 @@ export class TaskService {
 
   private async fetchList(): Promise<TaskListResult> {
     const { tracker, teamId, userId } = await this.deps.auth.session()
-    const tasks = await tracker.listMyTasks(teamId, userId)
+    const ids = await this.requireScope().listIds()
+    // The query is limited to these Lists; the filter keeps it so even if ClickUp widened it.
+    const tasks = (await tracker.listMyTasks(teamId, userId, { listIds: [...ids] })).filter((t) => ids.has(t.list.id))
     const fetchedAt = this.deps.clock()
     await this.deps.cache.writeTasks(teamId, fetchedAt, tasks)
     this.deps.post('tasks.changed', { fetchedAt })
-    return { tasks, fetchedAt, stale: false }
+    return { tasks, fetchedAt, stale: false, scopeEmpty: false }
+  }
+
+  private requireScope(): NonNullable<TaskServiceDeps['scope']> {
+    const scope = this.deps.scope
+    if (!scope) throw new PluginError('orca_failed', 'List scope is not wired.')
+    return scope
   }
 }
 

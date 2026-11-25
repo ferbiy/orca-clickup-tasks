@@ -5,13 +5,32 @@ import type { KeyValueStore } from '../ports'
 
 const KEY = 'links'
 const MAX_LINKS = 200
-const RUN_STATES: readonly string[] = ['starting', 'working', 'blocked', 'waiting', 'done', 'stalled', 'failed']
-const PROBLEM_KINDS: readonly string[] = ['agent_missing', 'no_agent', 'no_terminal', 'agent_idle']
+const RUN_STATES: readonly string[] = ['starting', 'working', 'blocked', 'waiting', 'done', 'stalled']
+const PROBLEM_KINDS: readonly string[] = ['no_agent', 'agent_idle']
 const CONTEXT_MODES: readonly string[] = ['link-and-snapshot', 'link-only', 'snapshot-only']
-const CONTEXT_REPORTS: readonly string[] = ['tool', 'none']
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function isStatusChange(v: unknown): boolean {
+  return isRecord(v) && (v.status === null || typeof v.status === 'string') && typeof v.note === 'string' && typeof v.at === 'number'
+}
+
+/**
+ * Links written by the upstream plugin may carry states and fields this fork dropped ('failed',
+ * terminal lines, the agent's ClickUp report). They are read as 'stalled' without them.
+ */
+function migrate(v: unknown): unknown {
+  if (!isRecord(v) || !isRecord(v.run)) return v
+  const run = { ...v.run }
+  if (run.state === 'failed') run.state = 'stalled'
+  if (isRecord(run.problem)) {
+    const kind = run.problem.kind === 'agent_idle' ? 'agent_idle' : 'no_agent'
+    run.problem = { kind }
+  }
+  const { contextReport: _report, ...rest } = v
+  return { ...rest, run }
 }
 
 function isLink(v: unknown): v is TaskLink {
@@ -35,7 +54,9 @@ function isLink(v: unknown): v is TaskLink {
     (run.problem === undefined || isProblem(run.problem)) &&
     (v.terminalId === undefined || v.terminalId === null || typeof v.terminalId === 'string') &&
     (v.taskContext === undefined || CONTEXT_MODES.includes(v.taskContext as string)) &&
-    (v.contextReport === undefined || CONTEXT_REPORTS.includes(v.contextReport as string))
+    (v.hostId === undefined || typeof v.hostId === 'string') &&
+    (v.onStart === undefined || isStatusChange(v.onStart)) &&
+    (v.onDone === undefined || isStatusChange(v.onDone))
   )
 }
 
@@ -43,9 +64,7 @@ function isProblem(v: unknown): boolean {
   return (
     isRecord(v) &&
     typeof v.kind === 'string' &&
-    PROBLEM_KINDS.includes(v.kind) &&
-    Array.isArray(v.lines) &&
-    v.lines.every((l) => typeof l === 'string')
+    PROBLEM_KINDS.includes(v.kind)
   )
 }
 
@@ -55,7 +74,7 @@ export class LinkStore {
   private async read(): Promise<TaskLink[]> {
     const raw = await this.kv.get(KEY)
     if (!Array.isArray(raw)) return []
-    return (raw as unknown[]).filter(isLink)
+    return (raw as unknown[]).map(migrate).filter(isLink)
   }
 
   /** Newest first (by createdAt). */

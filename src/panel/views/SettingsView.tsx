@@ -1,11 +1,12 @@
-// Settings tab: account, start defaults, notifications, cached data, about.
+// Settings tab: account, Lists (scope and statuses), start defaults, notifications, cached data, about.
 import { Button, Callout, Input, KeyValue, Link, Row, Select, Separator, Skeleton, Stack, Switch, Text, read, set } from 'orca'
 import * as api from '../api'
 import * as st from '../settings'
 import type { SettingsState, TaskContextMode } from '../../shared/model'
 import * as s from '../state'
+import { ListsSection } from './ListsSection'
 
-const TOKEN_HELP = 'https://developer.clickup.com/docs/authentication#personal-token'
+const AUTH_HELP = 'https://developer.clickup.com/docs/authentication'
 
 function Section(props: { title: string; children: unknown }) {
   return (
@@ -22,7 +23,12 @@ function Account() {
   const teams = auth?.teams ?? []
   return (
     <Section title="Account">
-      <KeyValue items={[{ label: 'Signed in as', value: auth?.user?.name ?? 'Unknown' }]} />
+      <KeyValue
+        items={[
+          { label: 'Signed in as', value: auth?.user?.name ?? 'Unknown' },
+          { label: 'Method', value: auth?.method === 'oauth' ? 'ClickUp OAuth app' : 'Personal API token' }
+        ]}
+      />
       <Select
         label="Workspace"
         value={auth?.teamId ?? ''}
@@ -32,22 +38,25 @@ function Account() {
       />
       <Row>
         <Button variant="outline" tone="danger" size="sm" disabled={busy !== null} onPress={() => void api.disconnect()}>
-          Disconnect
+          Sign out
         </Button>
       </Row>
+      <Text size="xs" muted>
+        Sign out deletes the token from Orca. ClickUp has no API to revoke a token: to cut access everywhere, regenerate the
+        app's secret or delete the app in ClickUp › Settings › Apps (or regenerate your personal token).
+      </Text>
     </Section>
   )
 }
 
 const CONTEXT_OPTIONS: { value: TaskContextMode; label: string }[] = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'link-and-snapshot', label: 'Link + snapshot' },
-  { value: 'link-only', label: 'Link only' },
-  { value: 'snapshot-only', label: 'Snapshot only' }
+  { value: 'link-and-snapshot', label: 'Link + snapshot (default)' },
+  { value: 'snapshot-only', label: 'Snapshot only' },
+  { value: 'link-only', label: 'Link only (agent reads ClickUp itself)' }
 ]
 
 function StartDefaults(props: { state: SettingsState }) {
-  const { settings, agents, clickUpReaders } = props.state
+  const { settings, agents } = props.state
   const saving = read(st.settingsSaving)
   const draft = read(st.baseBranchDraft)
   const dirty = draft.trim() !== settings.defaultBaseBranch
@@ -67,23 +76,23 @@ function StartDefaults(props: { state: SettingsState }) {
         disabled={saving}
         onChange={(v) => void st.saveSetting({ taskContext: v as TaskContextMode })}
       />
-      {clickUpReaders.length > 0 ? (
-        <Stack gap="xs">
-          <Text size="xs" muted>
-            Agents that read ClickUp themselves: {clickUpReaders.join(', ')}
-          </Text>
-          <Row>
-            <Button variant="outline" size="sm" disabled={saving} onPress={() => void st.forgetAgentContext()}>
-              Forget what agents can read
-            </Button>
-          </Row>
-        </Stack>
-      ) : null}
       <Switch
-        label="Move task to “In progress” on start"
+        label="Move the task to its List's in-progress status on start"
         checked={settings.moveToInProgress}
         disabled={saving}
         onChange={(v) => void st.saveSetting({ moveToInProgress: v })}
+      />
+      <Switch
+        label="Move the task to its List's review status when the agent first finishes"
+        checked={settings.moveOnDone}
+        disabled={saving}
+        onChange={(v) => void st.saveSetting({ moveOnDone: v })}
+      />
+      <Switch
+        label="Comment on the task when it starts and finishes (branch, agent)"
+        checked={settings.commentOnStart}
+        disabled={saving}
+        onChange={(v) => void st.saveSetting({ commentOnStart: v })}
       />
       <Input
         label="Default base branch"
@@ -149,7 +158,7 @@ function About() {
       <Text size="sm" muted>
         ClickUp Tasks
       </Text>
-      <Link onPress={() => void api.openExternalLink(TOKEN_HELP)}>How to get a ClickUp API token</Link>
+      <Link onPress={() => void api.openExternalLink(AUTH_HELP)}>ClickUp authentication docs</Link>
     </Section>
   )
 }
@@ -178,6 +187,10 @@ export function SettingsView() {
     <Stack gap="md">
       {error ? <Callout tone="danger">{api.messageFor(error)}</Callout> : null}
       <Account />
+      <Separator />
+      <Section title="Lists">
+        <ListsSection />
+      </Section>
       <Separator />
       <StartDefaults state={state} />
       <Separator />

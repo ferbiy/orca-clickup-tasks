@@ -24,6 +24,8 @@ export type ErrorCode =
   | 'forbidden'
   /** The task changed since the panel last saw it; the write was not sent. */
   | 'conflict'
+  /** The task's List is not among the Lists chosen for Orca, so it is not shown or used. */
+  | 'out_of_scope'
 
 export interface PluginErrorShape {
   code: ErrorCode
@@ -53,7 +55,8 @@ const CODES: readonly ErrorCode[] = [
   'secrets_unavailable',
   'orca_failed',
   'forbidden',
-  'conflict'
+  'conflict',
+  'out_of_scope'
 ]
 
 /** Reads the code off anything a request rejected with; unknown codes become 'orca_failed'. */

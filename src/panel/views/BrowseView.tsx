@@ -1,4 +1,4 @@
-// Browse tab: a lazy Space › Folder › List tree, then one List's tasks grouped by status.
+// Browse tab: a lazy Space › Folder › List tree of the chosen Lists only, then one List's tasks.
 import { Button, Callout, EmptyState, Heading, Row, Skeleton, Stack, Text, Tree, read } from 'orca'
 import * as api from '../api'
 import * as s from '../state'
@@ -22,8 +22,14 @@ function BrowseTree() {
       </Callout>
     )
   }
-  if (!tree.spaces) return <Skeleton lines={5} />
-  if (tree.spaces.length === 0) return <EmptyState icon="layers" title="No Spaces in this Workspace" />
+  const scope = read(s.scope)
+  if (!tree.spaces || !scope) return <Skeleton lines={5} />
+  const items = s.treeItems(tree, scope)
+  if (items.length === 0) {
+    return (
+      <EmptyState icon="layers" title="No Lists chosen" description="Choose which Spaces, Folders or Lists Orca may see in Settings › Lists." />
+    )
+  }
   const failed = tree.error?.spaceId ?? null
   return (
     <Stack gap="sm">
@@ -41,7 +47,7 @@ function BrowseTree() {
       ) : null}
       <Tree
         label="Spaces, Folders and Lists"
-        items={s.treeItems(tree)}
+        items={items}
         expanded={expanded}
         // Nothing stays selected, so a second press on the same Space or Folder toggles it again.
         selected=""

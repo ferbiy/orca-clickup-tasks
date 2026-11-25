@@ -52,25 +52,15 @@ export interface OrcaGateway {
    */
   createWorkspace(params: {
     projectId: string
+    /** The project's host (`local`, `runtime:…`, `ssh:…`): a paired server's project is created there. */
+    hostId: string
     name: string
     baseBranch?: string
     agent: string
     prompt: string
   }): Promise<{ workspaceId: string; terminalId?: string }>
-  openWorkspace(workspaceId: string): Promise<void>
-  /** Starts an agent in a new terminal of an existing workspace. (Its `prompt` is lost, #41107: the plugin types it.) */
-  launchAgent(params: { workspaceId: string; agent: string }): Promise<{ terminalId: string }>
-  /**
-   * Types text into a terminal (no Enter). Needs `terminal:send`; Orca only accepts terminals of the
-   * focused worktree and rejects others with "terminal is outside the active worktree".
-   */
-  sendText(terminalId: string, text: string): Promise<boolean>
   /** The agents Orca sees in one workspace. Rejects when no workspace has that id. */
   listAgents(workspaceId: string): Promise<OrcaAgent[]>
-  /** A workspace's terminals (at most 50). */
-  listTerminals(workspaceId: string): Promise<{ id: string; title?: string }[]>
-  /** A terminal's newest output as plain lines. Needs `terminal:read`. Rejects when the terminal is gone. */
-  readTerminal(terminalId: string, maxLines: number): Promise<string[]>
   notify(params: { title: string; body?: string }): Promise<void>
   log(message: string): void
 }

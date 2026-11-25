@@ -19,7 +19,11 @@ describe('buildWorkspaceName', () => {
     assert.equal(buildWorkspaceName(t('')), 'CU-abc')
   })
   test('custom id wins, case kept', () => {
-    assert.equal(buildWorkspaceName(t('Fix it', 'ENG-142')), 'CU-ENG-142-fix-it')
+    assert.equal(buildWorkspaceName(t('Fix it', 'ENG-142')), 'ENG-142-fix-it')
+  })
+  test('an unsafe custom id is cleaned; an id-less name falls back to CU', () => {
+    assert.equal(buildWorkspaceName(t('Fix', ' ovh/7 ')), 'ovh-7-fix')
+    assert.equal(buildWorkspaceName({ id: '', customId: null, name: 'Fix' }), 'CU-fix')
   })
   test('collapses runs and trims dashes', () => {
     assert.equal(buildWorkspaceName(t('  --Fix:  the   bug!! ')), 'CU-abc-fix-the-bug')
@@ -45,7 +49,7 @@ describe('buildWorkspaceName', () => {
   test('result is a safe branch name', () => {
     for (const title of ['A/B c:d', 'Sửa lỗi đăng nhập', '100% done ~ ^ ? * [x]']) {
       const name = buildWorkspaceName(t(title, 'ENG-1'))
-      assert.ok(/^CU-[A-Za-z0-9-]+$/.test(name), name)
+      assert.ok(/^ENG-1(-[a-z0-9]+)*$/.test(name), name)
       assert.ok(name.length <= 60)
     }
   })

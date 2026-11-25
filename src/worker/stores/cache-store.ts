@@ -217,6 +217,11 @@ export class CacheStore {
     await this.kv.set(SPACE_TAGS_KEY, map as unknown as JsonValue)
   }
 
+  /** Drops only the cached task list (the chosen Lists changed: what is cached may be outside them). */
+  async clearTasks(): Promise<void> {
+    await this.kv.delete(TASKS_KEY)
+  }
+
   /** Drops every cache key (on disconnect or team change). */
   async clear(): Promise<void> {
     await this.kv.delete(TASKS_KEY)

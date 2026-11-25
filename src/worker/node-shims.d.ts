@@ -8,4 +8,23 @@ declare module 'node:child_process' {
   export function spawn(command: string, args: readonly string[], options: { stdio: readonly string[] }): ChildProcess
 }
 
+declare module 'node:http' {
+  interface IncomingMessage {
+    method?: string
+    url?: string
+    headers: Record<string, string | string[] | undefined>
+  }
+  interface ServerResponse {
+    writeHead(status: number, headers: Record<string, string>): this
+    end(body?: string): void
+  }
+  interface Server {
+    listen(port: number, host: string, callback: () => void): this
+    close(callback?: (error?: Error) => void): this
+    closeAllConnections?(): void
+    on(event: 'error', listener: (error: Error) => void): this
+  }
+  export function createServer(handler: (req: IncomingMessage, res: ServerResponse) => void): Server
+}
+
 declare const process: { platform: string }

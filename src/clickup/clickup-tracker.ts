@@ -4,7 +4,7 @@ import { PluginError } from '../shared/errors'
 import { commentParts } from '../shared/edit'
 import type { CommentInput, DateValue, Priority, TaskPatch, TaskSummary } from '../shared/model'
 import type { TaskTracker, TaskTrackerFactory } from '../tracker/tracker'
-import { createClickUpHttp, type ClickUpHttp, type FetchLike } from './http'
+import { createClickUpHttp, type ClickUpHttp, type FetchLike, type RateGate } from './http'
 import {
   mapCommentPage,
   mapPerson,
@@ -25,6 +25,7 @@ import {
 
 const PAGE_SIZE = 100
 const DEFAULT_MAX_PAGES = 5
+const LIST_IDS_PER_REQUEST = 40
 
 function requireId(value: string, what: string): string {
   if (value.trim() === '') throw new PluginError('invalid_input', `${what} is required`)
@@ -43,20 +44,26 @@ export function createClickUpTracker(http: ClickUpHttp): TaskTracker {
 
     async listMyTasks(teamId, userId, options) {
       const team = requireId(teamId, 'teamId')
-      const maxPages = options?.maxPages ?? DEFAULT_MAX_PAGES
+      const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES
       const tasks: TaskSummary[] = []
-      for (let page = 0; page < maxPages; page++) {
-        const json = await http.request<unknown>('GET', `/team/${team}/task`, {
-          query: {
-            assignees: [userId],
-            include_closed: false,
-            subtasks: true,
-            page
-          }
-        })
-        const result = parseTaskPage(json)
-        for (const dto of result.tasks) tasks.push(mapTaskSummary(dto))
-        if (result.lastPage === true || result.rawCount < PAGE_SIZE) break
+      // ClickUp ORs ids within list_ids[] (and ANDs different filters), so the chosen Lists go in
+      // chunks of ids; never an unfiltered Workspace-wide query.
+      for (let at = 0; at < options.listIds.length; at += LIST_IDS_PER_REQUEST) {
+        const listIds = options.listIds.slice(at, at + LIST_IDS_PER_REQUEST)
+        for (let page = 0; page < maxPages; page++) {
+          const json = await http.request<unknown>('GET', `/team/${team}/task`, {
+            query: {
+              assignees: [userId],
+              list_ids: listIds,
+              include_closed: false,
+              subtasks: true,
+              page
+            }
+          })
+          const result = parseTaskPage(json)
+          for (const dto of result.tasks) tasks.push(mapTaskSummary(dto))
+          if (result.lastPage === true || result.rawCount < PAGE_SIZE) break
+        }
       }
       return tasks
     },
@@ -255,7 +262,8 @@ async function postComment(http: ClickUpHttp, path: string, comment: CommentInpu
   return parseCreatedId(json)
 }
 
-/** What the worker's composition root uses: one tracker per token. */
-export function clickUpTrackerFactory(fetchImpl: FetchLike): TaskTrackerFactory {
-  return (token) => createClickUpTracker(createClickUpHttp({ token, fetch: fetchImpl }))
+/** What the worker's composition root uses: one tracker per credential, one request budget for all. */
+export function clickUpTrackerFactory(fetchImpl: FetchLike, gate?: RateGate): TaskTrackerFactory {
+  return (authorization) =>
+    createClickUpTracker(createClickUpHttp({ token: authorization, fetch: fetchImpl, ...(gate ? { gate } : {}) }))
 }

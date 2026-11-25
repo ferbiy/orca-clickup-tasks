@@ -226,9 +226,34 @@ export interface ClickUpUser {
   name: string
 }
 
+/** How the saved ClickUp credential was obtained. */
+export type AuthMethod = 'oauth' | 'personal'
+
+/** The OAuth app the person registered in ClickUp, as the panel may see it (never the secret). */
+export interface OAuthAppState {
+  /** The app's client id, or null when no app is saved yet. Not a secret. */
+  clientId: string | null
+  /** The redirect URL the app was registered with (default http://127.0.0.1:47386/callback). */
+  redirectUri: string
+  /** A sign-in in progress, or null. */
+  pending: OAuthPending | null
+}
+
+export interface OAuthPending {
+  /** The ClickUp page to open in a browser. Carries client id, redirect URL and state, no secret. */
+  authorizeUrl: string
+  /** Epoch ms when the sign-in stops waiting. */
+  expiresAt: number
+  /** True when the plugin listens on the loopback redirect URL; false: paste the URL back by hand. */
+  listening: boolean
+}
+
 /** What the panel needs to decide between the Connect screen and the task list. */
 export interface AuthState {
   connected: boolean
+  /** How the saved credential was obtained, or null when none is saved. */
+  method: AuthMethod | null
+  oauth: OAuthAppState
   user: ClickUpUser | null
   teams: Team[]
   /** Selected Workspace (ClickUp calls it "team" in API v2). */
@@ -239,6 +264,8 @@ export interface AuthState {
 
 export interface TaskListResult {
   tasks: TaskSummary[]
+  /** True when no List is chosen yet: nothing was fetched, the panel asks the person to choose. */
+  scopeEmpty: boolean
   /** Epoch ms of the ClickUp fetch these tasks came from. */
   fetchedAt: number
   /** True when the cache is older than the refresh window; the panel may ask for a refresh. */
@@ -249,7 +276,10 @@ export interface TaskListResult {
 export interface ProjectOption {
   id: string
   name: string
+  /** `local`, `ssh:…` or `runtime:…` (a paired Orca server). Passed back to workspace.create. */
   hostId: string
+  /** Where the worktree is created, for the Select label ("this computer", "server", "SSH"). */
+  hostLabel: string
 }
 
 export interface StartOptions {
@@ -261,6 +291,8 @@ export interface StartOptions {
   workspaceName: string
   /** Status the task moves to on start when the person keeps the box checked; null if none fits. */
   inProgressStatus: string | null
+  /** Why that status (or why none): shown under the checkbox so nothing changes silently. */
+  inProgressWhy: string
   /** Start form seeds, from the person's settings (Phase 6). */
   defaults: StartDefaults
 }
@@ -276,15 +308,12 @@ export interface StartDefaults {
 }
 
 /**
- * How much of the task the agent is told to fetch itself (docs/TASK-CONTEXT.md).
- * 'auto' resolves per agent: a learned ClickUp reader gets the link only, any other gets
- * link + snapshot. Resolved modes (never 'auto') live on the link.
+ * How much of the task the first prompt carries (docs/TASK-CONTEXT.md). 'link-and-snapshot' (the
+ * default) sends the link plus a fenced snapshot; 'snapshot-only' leaves out the instruction to
+ * read the link; 'link-only' sends no task text at all, for agents with their own ClickUp access.
  */
-export type TaskContextMode = 'auto' | 'link-and-snapshot' | 'link-only' | 'snapshot-only'
-export type ResolvedTaskContext = Exclude<TaskContextMode, 'auto'>
-
-/** What an agent reported about its ClickUp access (the CU-CTX line it printed). */
-export type AgentClickUpAccess = 'tool' | 'none'
+export type TaskContextMode = 'link-and-snapshot' | 'link-only' | 'snapshot-only'
+export type ResolvedTaskContext = TaskContextMode
 
 /**
  * The plugin's settings (Phase 6). Stored by the worker (PrefsStore); the panel edits them in the
@@ -295,13 +324,20 @@ export interface PluginSettings {
   defaultAgent: string
   /** Whether "Move to in progress" starts ticked. Default true. */
   moveToInProgress: boolean
+  /** Post a comment on the task (branch, agent) when it is started. Default true. */
+  commentOnStart: boolean
+  /**
+   * When the agent first finishes, move the task to the List's "done" status (review, by type or
+   * override) and comment, but only while the task is still in the status the start set. Default true.
+   */
+  moveOnDone: boolean
   /** Base branch the Start form starts with; '' = the project's default. Trimmed, max 200 chars. Default ''. */
   defaultBaseBranch: string
   /** Show an OS notification when an agent finishes a task's run. Default true. */
   notifyOnDone: boolean
   /** Show an OS notification when an agent run becomes blocked or waiting for input. Default false. */
   notifyOnNeedsInput: boolean
-  /** How much of the task the agent gets in its prompt. Default 'auto'. */
+  /** How much of the task the agent gets in its prompt. Default 'link-and-snapshot'. */
   taskContext: TaskContextMode
 }
 
@@ -309,13 +345,13 @@ export interface PluginSettings {
 export interface SettingsState {
   settings: PluginSettings
   agents: { id: string; label: string }[]
-  /** Labels of the agents that reported they can read ClickUp themselves (learned). */
-  clickUpReaders: string[]
 }
 
 export interface StartRequest {
   taskId: string
   projectId: string
+  /** The project's host, when the same project id exists on more than one host. */
+  hostId?: string
   agent: string
   /** Empty or missing: the project's default base. */
   baseBranch?: string
@@ -324,34 +360,35 @@ export interface StartRequest {
   taskContext?: TaskContextMode
 }
 
-/** An agent the Start form offers. `missing`: its CLI was not found the last time it was started. */
+/** An agent the Start form offers. */
 export interface AgentChoice {
   id: string
   label: string
-  missing?: boolean
-  /** What the agent reported about its own ClickUp access, when it has run before. */
-  clickUp?: AgentClickUpAccess
 }
 
 /**
  * Agent run state as the plugin tracks it for one linked workspace. 'starting' → … come from Orca's
- * agent events; 'stalled' and 'failed' come from the plugin's own checks (RunWatcher.check):
- * - 'stalled': no agent seen for a while. A guess, not proof (setup scripts can be slow).
- * - 'failed': the agent's terminal shows it could not start (e.g. `command not found`).
- * Any later agent event moves the run on again.
+ * agent events; 'stalled' comes from the plugin's own check (RunWatcher.check, agents.list only):
+ * no agent seen, or an agent that never worked, a while after the start. A guess, not proof (setup
+ * scripts can be slow, a CLI can be missing). Any later agent event moves the run on again.
  */
-export type RunState = 'starting' | 'working' | 'blocked' | 'waiting' | 'done' | 'stalled' | 'failed'
-
-/** Why a run is 'stalled' or 'failed', with what the plugin saw. */
+export type RunState = 'starting' | 'working' | 'blocked' | 'waiting' | 'done' | 'stalled'
+/** Why a run is 'stalled'. */
 export interface RunProblem {
   /**
-   * agent_missing: the shell could not find the agent's CLI. no_agent: no agent is running in the
-   * workspace. no_terminal: the agent's terminal is gone. agent_idle: the agent is open but never
-   * started on the task (its prompt may not have arrived: Orca #41107).
+   * no_agent: no agent is running in the workspace (its CLI may be missing, or setup is slow).
+   * agent_idle: an agent is open but never started on the task (its prompt may not have arrived).
    */
-  kind: 'agent_missing' | 'no_agent' | 'no_terminal' | 'agent_idle'
-  /** The last lines of the agent's terminal (untrusted text), or [] when they could not be read. */
-  lines: string[]
+  kind: 'no_agent' | 'agent_idle'
+}
+
+/** What the plugin did to the task's status at start or when the agent finished. */
+export interface StatusChange {
+  /** The status set, or null when nothing was changed. */
+  status: string | null
+  /** Why (shown on the run card). */
+  note: string
+  at: number
 }
 
 /** The link between a ClickUp task and the Orca workspace started for it. */
@@ -368,27 +405,23 @@ export interface TaskLink {
   createdAt: number
   /** The terminal Orca started the agent in, when Orca said; null for links made before it was kept. */
   terminalId?: string | null
-  /** The resolved task-context mode this run's prompt was built with. */
+  /** The task-context mode this run's prompt was built with. */
   taskContext?: ResolvedTaskContext
-  /** What the agent reported about its ClickUp access on this run (docs/TASK-CONTEXT.md §3). */
-  contextReport?: AgentClickUpAccess
+  /** The host the worktree lives on (`local`, `runtime:…`, `ssh:…`). */
+  hostId?: string
+  /** The status change made at start (null status: none was made). */
+  onStart?: StatusChange
+  /** The status change made when the agent first finished. */
+  onDone?: StatusChange
   run: {
     state: RunState
     /** Epoch ms the current state began. */
     since: number
     /** True once a 'working' state was seen; a 'done' before that is Orca's launch blip. */
     sawWorking: boolean
-    /** Set only while state is 'stalled' or 'failed'. */
+    /** Set only while state is 'stalled'. */
     problem?: RunProblem
   }
-}
-
-/** 'runs.retry': start an agent again in the run's existing worktree. */
-export interface RetryRequest {
-  workspaceId: string
-  agent: string
-  /** Overrides the `taskContext` setting for this retry's prompt. */
-  taskContext?: TaskContextMode
 }
 
 export interface UpdateTaskRequest {
@@ -397,4 +430,42 @@ export interface UpdateTaskRequest {
   status?: string
   /** Comment text (plain); omit or empty to post none. */
   comment?: string
+}
+
+// ── Lists in scope and status mapping ─────────────────────────────────────
+
+/**
+ * Which parts of the Workspace Orca may see. Only tasks whose List falls inside are fetched, shown
+ * and ever put into an agent prompt. A Space or Folder entry covers every List in it, including
+ * Lists added later. Folders and Lists keep their Space so the panel can group them.
+ */
+export interface Scope {
+  spaces: string[]
+  folders: { id: string; spaceId: string }[]
+  lists: { id: string; spaceId: string }[]
+}
+
+export const EMPTY_SCOPE: Scope = { spaces: [], folders: [], lists: [] }
+
+/** A status move the plugin makes on its own. */
+export type StatusTransition = 'start' | 'done'
+
+/** The person's choice for one List and transition: automatic, never change, or a named status. */
+export type StatusOverride = { mode: 'auto' } | { mode: 'none' } | { mode: 'status'; name: string }
+
+/** A transition resolved for one List. */
+export interface StatusResolution {
+  /** The status to move to, or null: leave the task as it is. */
+  status: string | null
+  source: 'auto' | 'override' | 'none'
+  /** Shown to the person: why this status, or why none. */
+  why: string
+}
+
+/** One List's statuses and what each transition does there (Settings › Lists). */
+export interface ListStatusMapping {
+  listId: string
+  statuses: StatusOption[]
+  start: { override: StatusOverride; resolved: StatusResolution }
+  done: { override: StatusOverride; resolved: StatusResolution }
 }

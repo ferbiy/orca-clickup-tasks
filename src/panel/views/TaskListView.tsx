@@ -30,7 +30,20 @@ function Body() {
     )
   }
   if (!result) return <Skeleton lines={6} />
-  if (result.tasks.length === 0) return <EmptyState icon="check" title="No open tasks assigned to you" />
+  if (result.scopeEmpty) {
+    return (
+      <EmptyState
+        icon="layers"
+        title="Choose your Lists"
+        description="Nothing is fetched until you choose which ClickUp Spaces, Folders or Lists Orca may see."
+      >
+        <Button size="sm" onPress={() => api.setTab('settings')}>
+          Choose Lists
+        </Button>
+      </EmptyState>
+    )
+  }
+  if (result.tasks.length === 0) return <EmptyState icon="check" title="No open tasks assigned to you in the chosen Lists" />
   if (groups.length === 0) return <EmptyState icon="search" title="No tasks match" description="Try a different search, List or filter." />
   return <TaskGroups groups={groups} links={links} />
 }
@@ -60,7 +73,7 @@ function MyTasks() {
       <Body />
       {result ? (
         <Text size="xs" muted>
-          {`${active > 0 ? `${shown} of ${result.tasks.length}` : result.tasks.length} open ${result.tasks.length === 1 ? 'task' : 'tasks'} assigned to you`}
+          {`${active > 0 ? `${shown} of ${result.tasks.length}` : result.tasks.length} open ${result.tasks.length === 1 ? 'task' : 'tasks'} assigned to you in the chosen Lists`}
         </Text>
       ) : null}
     </Stack>

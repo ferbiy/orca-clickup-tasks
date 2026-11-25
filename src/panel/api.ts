@@ -4,8 +4,7 @@ import { plugin, read, set, shell, update, type PluginRequests } from 'orca'
 import { fromErrorShape, type ErrorCode, messageOf, PluginError, toErrorShape } from '../shared/errors'
 import type { Result } from '../shared/errors'
 import { doneCommentTemplate } from '../shared/display'
-import type { TaskContextMode, TaskLink, TaskSummary } from '../shared/model'
-import { pickReviewStatus } from '../shared/status-pick'
+import type { TaskLink, TaskSummary } from '../shared/model'
 import { EMPTY_FILTER, normalizeFilter, normalizePresets, type TaskFilter, type TaskPreset } from '../shared/task-filter'
 import * as s from './state'
 import { loadSettings, settingsSaving, settingsState } from './settings'
@@ -19,7 +18,7 @@ export async function call<K extends Name>(name: K, ...input: Input<K> extends u
   const request = plugin.request as unknown as (n: string, i?: unknown, o?: { timeoutMs?: number }) => Promise<Result<Value<K>>>
   let answer: Result<Value<K>>
   try {
-    answer = await request(name, input[0], { timeoutMs: name === 'start.run' ? 120_000 : 30_000 })
+    answer = await request(name, input[0], { timeoutMs: name === 'start.run' || name === 'auth.oauthPaste' ? 120_000 : 30_000 })
   } catch (error) {
     throw new PluginError('orca_failed', messageOf(error))
   }
@@ -29,21 +28,24 @@ export async function call<K extends Name>(name: K, ...input: Input<K> extends u
 
 export const MESSAGES: Record<ErrorCode, string> = {
   not_connected: 'Connect ClickUp to continue.',
-  auth_invalid: 'ClickUp refused the token. Paste a new one.',
+  auth_invalid: 'ClickUp no longer accepts this sign-in. Sign in again.',
   rate_limited: 'ClickUp is rate limiting requests. Try again in a minute.',
   clickup_unavailable: 'Could not reach ClickUp. Check your connection and refresh.',
   not_found: 'That item no longer exists or you lost access to it.',
   invalid_input: 'That did not look right.',
   forbidden: 'Your ClickUp plan does not allow that. Locked fields stay read-only.',
   conflict: 'This task changed in ClickUp. It was reloaded; your text is kept.',
-  secrets_unavailable: 'This system has no keychain, so the token cannot be stored safely.',
-  orca_failed: 'Orca could not finish that action.'
+  secrets_unavailable: 'This system has no keychain, so the token cannot be stored safely. On Linux, install and unlock GNOME Keyring or KWallet, then restart Orca.',
+  orca_failed: 'Orca could not finish that action.',
+  out_of_scope: 'This task is in a List that is not chosen for Orca. Add its List in Settings › Lists to use it here.'
 }
 
 /** What to show for an error: ClickUp's own wording for input errors, a fixed sentence otherwise. */
 export function messageFor(error: unknown): string {
   const shape = toErrorShape(error)
-  return shape.code === 'invalid_input' || shape.code === 'orca_failed' ? shape.message || MESSAGES[shape.code] : MESSAGES[shape.code]
+  return shape.code === 'invalid_input' || shape.code === 'orca_failed' || shape.code === 'secrets_unavailable'
+    ? shape.message || MESSAGES[shape.code]
+    : MESSAGES[shape.code]
 }
 
 async function run<T>(label: string, work: () => Promise<T>): Promise<T | undefined> {
@@ -77,11 +79,112 @@ export async function connect(): Promise<void> {
   if (!state) return
   set(s.tokenDraft, '')
   set(s.auth, state)
-  if (state.teamId) await loadTasks(false)
+  if (state.teamId) await afterSignIn()
+}
+
+/** What a fresh sign-in loads: the chosen Lists, then the tasks. */
+export async function afterSignIn(): Promise<void> {
+  await loadScope()
+  await loadTasks(false)
+}
+
+// ── OAuth ──────────────────────────────────────────────────────────────────
+
+export function patchOAuthDraft(patch: Partial<s.OAuthDraft>): void {
+  update(s.oauthDraft, (d) => ({ ...d, ...patch }))
+}
+
+/** Saves the ClickUp app (client id + secret + redirect URL) into Orca's encrypted secrets. */
+export async function saveOAuthApp(): Promise<void> {
+  const d = read(s.oauthDraft)
+  const state = await run('Saving…', () =>
+    call('auth.oauthSaveApp', {
+      clientId: d.clientId,
+      ...(d.clientSecret.trim() ? { clientSecret: d.clientSecret } : {}),
+      ...(d.redirectUri.trim() ? { redirectUri: d.redirectUri } : {})
+    })
+  )
+  // The secret leaves the panel either way: it is never kept in an atom after a save attempt.
+  set(s.oauthDraft, { ...d, clientSecret: '' })
+  if (!state) return
+  set(s.auth, state)
+  set(s.oauthEditing, false)
+}
+
+export async function forgetOAuthApp(): Promise<void> {
+  const state = await run('Forgetting…', () => call('auth.oauthForgetApp'))
+  if (state) set(s.auth, state)
+}
+
+/** Step 1: the worker prepares the sign-in (state, listener) and answers the ClickUp page to open. */
+export async function beginOAuth(): Promise<void> {
+  set(s.oauthPaste, '')
+  const state = await run('Preparing sign-in…', () => call('auth.oauthBegin'))
+  if (state) set(s.auth, state)
+}
+
+/** Step 2, from a press: opens ClickUp's authorize page in the browser. */
+export async function openOAuthPage(): Promise<void> {
+  const url = read(s.auth)?.oauth.pending?.authorizeUrl
+  if (!url || !url.startsWith('https://app.clickup.com/api?')) return
+  await shell.openExternal(url)
+}
+
+/** Fallback: the person pastes the address the browser ended on. */
+export async function pasteOAuthResult(): Promise<void> {
+  const url = read(s.oauthPaste)
+  const state = await run('Signing in…', () => call('auth.oauthPaste', { url }))
+  set(s.oauthPaste, '')
+  if (!state) return
+  set(s.auth, state)
+  if (state.connected && state.teamId) await afterSignIn()
+}
+
+export async function cancelOAuth(): Promise<void> {
+  const state = await run('Cancelling…', () => call('auth.oauthCancel'))
+  if (state) set(s.auth, state)
+}
+
+// ── Lists in scope ─────────────────────────────────────────────────────────
+
+export async function loadScope(): Promise<void> {
+  try {
+    set(s.scope, await call('scope.get'))
+  } catch (error) {
+    set(s.notice, { tone: 'danger', text: messageFor(error) })
+  }
+}
+
+/** Saves a new choice of Lists; the worker drops the cached tasks and the list reloads. */
+export async function saveScope(next: s.ScopeValue): Promise<void> {
+  const saved = await run('Saving Lists…', () => call('scope.set', { scope: next }))
+  if (!saved) return
+  set(s.scope, saved)
+  set(s.tasks, null)
+  resetBrowseSelection()
+  await loadTasks(true)
+}
+
+/** Loads one List's statuses and transitions for the status mapping section. */
+export async function loadMapping(listId: string): Promise<void> {
+  if (read(s.mappings)[listId]) return
+  try {
+    const mapping = await call('lists.mapping', { listId })
+    update(s.mappings, (m) => ({ ...m, [listId]: mapping }))
+  } catch (error) {
+    set(s.notice, { tone: 'danger', text: messageFor(error) })
+  }
+}
+
+export async function setOverride(listId: string, which: 'start' | 'done', value: string): Promise<void> {
+  const override =
+    value === 'auto' ? { mode: 'auto' as const } : value === 'none' ? { mode: 'none' as const } : { mode: 'status' as const, name: value.slice(7) }
+  const mapping = await run('Saving…', () => call('lists.setOverride', { listId, which, override }))
+  if (mapping) update(s.mappings, (m) => ({ ...m, [listId]: mapping }))
 }
 
 export async function disconnect(): Promise<void> {
-  const state = await run('Disconnecting…', () => call('auth.disconnect'))
+  const state = await run('Signing out…', () => call('auth.disconnect'))
   if (!state) return
   set(s.auth, state)
   set(s.tasks, null)
@@ -94,7 +197,9 @@ export async function selectTeam(teamId: string): Promise<void> {
   if (!state) return
   set(s.auth, state)
   set(s.tasks, null)
+  set(s.mappings, {})
   resetBrowse()
+  await loadScope()
   await loadTasks(true)
   if (read(s.activeTab) === 'browse') void ensureBrowse()
 }
@@ -168,18 +273,21 @@ export async function openTask(taskId: string, backTo: string | null = null): Pr
     const statuses = await call('tasks.statuses', { listId: task.list.id })
     if (!isOpen(taskId)) return
     set(s.detail, { taskId, task, options, statuses, error: null })
+    const project = options.projects.find((p) => p.id === options.suggestedProjectId) ?? options.projects[0]
     set(s.startForm, {
-      projectId: options.suggestedProjectId ?? options.projects[0]?.id ?? '',
+      projectKey: project ? s.projectKey(project) : '',
       agent: options.defaults.agent,
       baseBranch: options.defaults.baseBranch,
       moveToInProgress: options.defaults.moveToInProgress,
       taskContext: options.defaults.taskContext
     })
     const link = read(s.linkByTask).get(taskId)
-    set(s.retryAgent, '')
     if (link && link.run.state !== 'done') void checkRuns(link.workspaceId)
+    const mapping = await call('lists.mapping', { listId: task.list.id }).catch(() => null)
+    if (!isOpen(taskId)) return
+    if (mapping) update(s.mappings, (m) => ({ ...m, [task.list.id]: mapping }))
     set(s.updateForm, {
-      status: pickReviewStatus(statuses, task.status.name) ?? task.status.name,
+      status: mapping?.done.resolved.status ?? task.status.name,
       comment: link ? doneCommentTemplate(agentLabelOf(link, options.agents), link.branch) : ''
     })
   } catch (error) {
@@ -302,10 +410,6 @@ export function patchStartForm(patch: Partial<s.StartForm>): void {
   update(s.startForm, (f) => ({ ...f, ...patch }))
 }
 
-export function patchRetryAgent(agent: string): void {
-  set(s.retryAgent, agent)
-}
-
 export function patchUpdateForm(patch: Partial<s.UpdateForm>): void {
   update(s.updateForm, (f) => ({ ...f, ...patch }))
 }
@@ -313,11 +417,13 @@ export function patchUpdateForm(patch: Partial<s.UpdateForm>): void {
 export async function startTask(): Promise<void> {
   const d = read(s.detail)
   const form = read(s.startForm)
-  if (!d?.task || !form.projectId) return
+  const project = d?.options?.projects.find((p) => s.projectKey(p) === form.projectKey)
+  if (!d?.task || !project) return
   const link = await run('Starting…', () =>
     call('start.run', {
       taskId: d.task!.id,
-      projectId: form.projectId,
+      projectId: project.id,
+      hostId: project.hostId,
       agent: form.agent,
       ...(form.baseBranch.trim() ? { baseBranch: form.baseBranch.trim() } : {}),
       moveToInProgress: form.moveToInProgress,
@@ -327,10 +433,6 @@ export async function startTask(): Promise<void> {
   if (!link) return
   upsertLink(link)
   set(s.notice, { tone: 'success', text: `Workspace ${link.branch} created. The agent is starting.` })
-}
-
-export async function openWorkspace(workspaceId: string): Promise<void> {
-  await run('Opening…', () => call('links.open', { workspaceId }))
 }
 
 /**
@@ -348,28 +450,6 @@ export async function checkRuns(workspaceId?: string): Promise<void> {
 /** "Check again" on the run card: the same check, with the busy label so the press shows. */
 export async function checkRunNow(workspaceId: string): Promise<void> {
   await run('Checking…', () => checkRuns(workspaceId))
-}
-
-/** Starts `agent` again in the run's worktree (same branch), with the task prompt. */
-export async function retryRun(workspaceId: string, agent: string): Promise<void> {
-  const link = await run('Starting…', () => call('runs.retry', { workspaceId, agent }))
-  if (!link) return
-  upsertLink(link)
-  set(s.retryAgent, '')
-  set(s.notice, { tone: 'success', text: `Starting ${agentLabelOf(link, read(s.detail)?.options?.agents ?? [])} in ${link.branch}.` })
-}
-
-/**
- * Types the task prompt into the run's agent ("Send the task prompt" / "Send the task details",
- * the latter with `taskContext: 'snapshot-only'`). Orca switches to the workspace to do it.
- */
-export async function sendRunPrompt(workspaceId: string, taskContext?: TaskContextMode): Promise<void> {
-  const link = await run('Sending the prompt…', () =>
-    call('runs.sendPrompt', { workspaceId, ...(taskContext ? { taskContext } : {}) })
-  )
-  if (!link) return
-  upsertLink(link)
-  set(s.notice, { tone: 'success', text: 'Prompt sent. Orca switched to the workspace to type it.' })
 }
 
 /** Loads the task prompt for pasting by hand (the run card's "Task prompt" section). */
@@ -454,6 +534,13 @@ export async function openAttachment(id: string): Promise<void> {
 let browseRun = 0
 let listRun = 0
 
+/** Closes an open List in Browse (it may have left the chosen Lists). */
+export function resetBrowseSelection(): void {
+  listRun++
+  set(s.browseSelection, { list: null, includeClosed: false })
+  set(s.browseTasks, null)
+}
+
 export function resetBrowse(): void {
   browseRun++
   listRun++
@@ -472,6 +559,18 @@ export function setTab(tab: s.Tab): void {
 /** Loads the settings the first time the Settings tab shows (a failed load is retried from its Retry button). */
 export function ensureSettings(): void {
   if (!read(settingsState) && !read(settingsSaving)) void loadSettings()
+  // The Lists picker shows the Workspace's Spaces and the contents of those with a choice.
+  if (!read(s.browseTree).spaces && !read(s.browseTree).loadingSpaces) void loadSpaces(false)
+  else loadChosenChildren()
+}
+
+/** Loads the Folders and Lists of every Space with something chosen (worker-cached for an hour). */
+function loadChosenChildren(): void {
+  const sc = read(s.scope)
+  if (!sc) return
+  for (const space of read(s.browseTree).spaces ?? []) {
+    if (s.spaceTouched(sc, space.id)) void loadChildren(space.id)
+  }
 }
 
 /** Loads what the Browse tab shows when it has not loaded yet. */
@@ -492,6 +591,7 @@ export async function loadSpaces(refresh: boolean): Promise<void> {
     const spaces = await call('browse.spaces', { refresh })
     if (run !== browseRun) return
     update(s.browseTree, (b) => ({ ...b, spaces, loadingSpaces: false }))
+    loadChosenChildren()
     // Spaces left open from the last run need their children again.
     for (const key of read(s.browseExpanded)) {
       if (key.startsWith('space:')) void loadChildren(key.slice(6), refresh)
@@ -617,7 +717,8 @@ export function upsertLink(link: TaskLink): void {
   // The agent can finish while its task is open: prefill the Done form once, never over edits.
   const d = read(s.detail)
   if (link.run.state === 'done' && d?.task?.id === link.taskId && d.options && !read(s.updateForm).comment) {
-    const status = d.statuses ? pickReviewStatus(d.statuses, d.task.status.name) : null
+    // After an automatic move the task already shows it; otherwise the List's "done" status.
+    const status = link.onDone?.status ?? read(s.mappings)[d.task.list.id]?.done.resolved.status ?? null
     update(s.updateForm, (f) => ({
       status: f.status || status || d.task!.status.name,
       comment: doneCommentTemplate(agentLabelOf(link, d.options!.agents), link.branch)

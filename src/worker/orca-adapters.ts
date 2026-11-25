@@ -1,4 +1,6 @@
 // The only module (besides worker.ts) that touches the Orca worker API: implements the ports.
+// Host methods used: secrets.*, storage.*, project.list, workspace.list, workspace.create,
+// agents.list, notifications.show. Nothing here reads or types into a terminal.
 import type { OrcaWorkerApi } from 'orca/worker'
 import type {
   KeyValueStore,
@@ -57,28 +59,9 @@ export function orcaGateway(orca: OrcaWorkerApi): OrcaGateway {
         ? { workspaceId: result.workspaceId }
         : { workspaceId: result.workspaceId, terminalId: result.terminalId }
     },
-    async openWorkspace(workspaceId) {
-      await orca.host.call('workspace.open', { workspaceId })
-    },
-    async launchAgent(params) {
-      const { terminalId } = await orca.host.call('agent.launch', params)
-      return { terminalId }
-    },
-    async sendText(terminalId, text) {
-      const { accepted } = await orca.host.call('terminal.sendText', { terminalId, text })
-      return accepted
-    },
     async listAgents(workspaceId) {
       const { agents } = await orca.host.call('agents.list', { workspaceId })
       return agents.map((a) => ({ terminalId: a.terminalId, agent: a.agent, state: a.state }))
-    },
-    async listTerminals(workspaceId) {
-      const { terminals } = await orca.host.call('terminal.list', { workspaceId })
-      return terminals
-    },
-    async readTerminal(terminalId, maxLines) {
-      const { lines } = await orca.host.call('terminal.read', { terminalId, maxLines })
-      return lines
     },
     async notify(params) {
       await orca.host.call('notifications.show', params)

@@ -15,6 +15,9 @@ import type {
   StatusOption,
   TaskComment,
   CommentCursor,
+  ListStatusMapping,
+  ProjectOption,
+  Scope,
   TaskContextMode,
   TaskDetail,
   TaskLink,
@@ -53,6 +56,28 @@ export const filtersOpen = atom<{ tasks: boolean; browse: boolean }>('filtersOpe
 /** Connect screen draft. Never persisted: it holds the token until submit. */
 export const tokenDraft = atom<string>('tokenDraft', '')
 
+/** The OAuth app form. Never persisted; the secret is cleared after every save attempt. */
+export interface OAuthDraft {
+  clientId: string
+  clientSecret: string
+  redirectUri: string
+}
+export const oauthDraft = atom<OAuthDraft>('oauthDraft', { clientId: '', clientSecret: '', redirectUri: '' })
+/** True while the person edits a saved OAuth app (the form shows instead of the summary). */
+export const oauthEditing = atom<boolean>('oauthEditing', false)
+/** The address pasted back from the browser (paste fallback). Never persisted. */
+export const oauthPaste = atom<string>('oauthPaste', '')
+/** Shows the personal-token form on the Connect screen. */
+export const showTokenForm = atom<boolean>('showTokenForm', false)
+
+/** The Lists Orca may see; null until loaded. */
+export type ScopeValue = Scope
+export const scope = atom<Scope | null>('scope', null)
+/** Unsaved edits to the chosen Lists (Settings › Lists); null: none. */
+export const scopeDraft = atom<Scope | null>('scopeDraft', null)
+/** Statuses and transitions per List, loaded when a List's mapping is opened. */
+export const mappings = atom<Record<string, ListStatusMapping>>('mappings', {})
+
 /** The task open in the detail screen and what it needs. */
 export interface DetailState {
   taskId: string
@@ -63,19 +88,24 @@ export interface DetailState {
 }
 export const detail = atom<DetailState | null>('detail', null)
 
+/** The Start form's project Select value: the same id can exist on two hosts. */
+export function projectKey(p: Pick<ProjectOption, 'id' | 'hostId'>): string {
+  return `${p.hostId}::${p.id}`
+}
+
 export interface StartForm {
-  projectId: string
+  projectKey: string
   agent: string
   baseBranch: string
   moveToInProgress: boolean
   taskContext: TaskContextMode
 }
 export const startForm = atom<StartForm>('startForm', {
-  projectId: '',
+  projectKey: '',
   agent: 'claude',
   baseBranch: '',
   moveToInProgress: true,
-  taskContext: 'auto'
+  taskContext: 'link-and-snapshot'
 })
 
 export interface UpdateForm {
@@ -83,9 +113,6 @@ export interface UpdateForm {
   comment: string
 }
 export const updateForm = atom<UpdateForm>('updateForm', { status: '', comment: '' })
-
-/** The agent the run card's "Retry here" starts; '' = the card's own pick (see RunCard). */
-export const retryAgent = atom<string>('retryAgent', '')
 
 /** The task prompt the run card shows for pasting by hand, once loaded. */
 export const runPrompt = atom<{ workspaceId: string; text: string | null; error: string | null } | null>('runPrompt', null)
@@ -217,31 +244,52 @@ export const commentMentions = atom<Record<string, Person[]>>('commentMentions',
 
 const folderKey = (id: string) => `folder:${id}`
 
+/** Whether a List (in `spaceId`, maybe in `folderId`) is inside the chosen scope. */
+export function listInScope(sc: Scope, spaceId: string, folderId: string | null, listId: string): boolean {
+  return (
+    sc.spaces.includes(spaceId) ||
+    (folderId !== null && sc.folders.some((f) => f.id === folderId)) ||
+    sc.lists.some((l) => l.id === listId)
+  )
+}
+
+/** Whether anything in a Space is chosen (so Browse shows it). */
+export function spaceTouched(sc: Scope, spaceId: string): boolean {
+  return sc.spaces.includes(spaceId) || sc.folders.some((f) => f.spaceId === spaceId) || sc.lists.some((l) => l.spaceId === spaceId)
+}
+
 function countLabel(n: number | null): string | undefined {
   return n === null ? undefined : `${n} ${n === 1 ? 'task' : 'tasks'}`
 }
 
-/** Tree rows: Spaces (lazy), then each Space's Folders (with their Lists) and folderless Lists. */
-export function treeItems(tree: BrowseTree): TreeItem[] {
-  return (tree.spaces ?? []).map((space) => {
-    const kids = tree.children[space.id]
-    const item: TreeItem = { key: `space:${space.id}`, label: space.name, icon: 'layers' }
-    if (!kids) return { ...item, hasChildren: true }
-    return {
-      ...item,
-      children: [
-        ...kids.folders.map(
-          (f): TreeItem => ({
-            key: folderKey(f.id),
-            label: f.name,
-            icon: 'folder',
-            children: f.lists.map((l) => ({ key: `list:${l.id}`, label: l.name, icon: 'file-text', description: countLabel(l.taskCount) }))
-          })
-        ),
-        ...kids.lists.map((l): TreeItem => ({ key: `list:${l.id}`, label: l.name, icon: 'file-text', description: countLabel(l.taskCount) }))
-      ]
-    }
-  })
+/**
+ * Tree rows limited to the chosen scope: Spaces with anything chosen (lazy), then their chosen
+ * Folders (with their chosen Lists) and chosen folderless Lists. Nothing else is listed.
+ */
+export function treeItems(tree: BrowseTree, sc: Scope): TreeItem[] {
+  return (tree.spaces ?? [])
+    .filter((space) => spaceTouched(sc, space.id))
+    .map((space) => {
+      const kids = tree.children[space.id]
+      const item: TreeItem = { key: `space:${space.id}`, label: space.name, icon: 'layers' }
+      if (!kids) return { ...item, hasChildren: true }
+      const listItem = (l: { id: string; name: string; taskCount: number | null }): TreeItem => ({
+        key: `list:${l.id}`,
+        label: l.name,
+        icon: 'file-text',
+        description: countLabel(l.taskCount)
+      })
+      return {
+        ...item,
+        children: [
+          ...kids.folders
+            .map((f) => ({ f, lists: f.lists.filter((l) => listInScope(sc, space.id, f.id, l.id)) }))
+            .filter(({ lists }) => lists.length > 0)
+            .map(({ f, lists }): TreeItem => ({ key: folderKey(f.id), label: f.name, icon: 'folder', children: lists.map(listItem) })),
+          ...kids.lists.filter((l) => listInScope(sc, space.id, null, l.id)).map(listItem)
+        ]
+      }
+    })
 }
 
 /** The List behind a `list:<id>` key, with its "Space › Folder" breadcrumb, from the loaded tree. */

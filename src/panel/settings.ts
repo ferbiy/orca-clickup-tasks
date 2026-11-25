@@ -54,21 +54,6 @@ export async function saveBaseBranch(): Promise<void> {
   await saveSetting({ defaultBaseBranch: next })
 }
 
-/** "Forget what agents can read": drops the learned ClickUp access of every agent. */
-export async function forgetAgentContext(): Promise<void> {
-  set(settingsSaving, true)
-  set(settingsError, null)
-  set(settingsNotice, null)
-  try {
-    set(settingsState, await call('settings.forgetAgentContext'))
-    set(settingsNotice, 'Forgot what agents can read')
-  } catch (error) {
-    set(settingsError, toErrorShape(error))
-  } finally {
-    set(settingsSaving, false)
-  }
-}
-
 export async function clearCache(): Promise<void> {
   set(settingsSaving, true)
   set(settingsError, null)

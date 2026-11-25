@@ -24,10 +24,10 @@ export interface TaskTracker {
   /** Workspaces (ClickUp "teams") the token can see. */
   listTeams(): Promise<Team[]>
   /**
-   * Open tasks assigned to `userId` in `teamId`, subtasks included, every page up to `maxPages`
-   * (100 tasks a page). Sorted by ClickUp's default order.
+   * Open tasks assigned to `userId` in `teamId` whose List is one of `listIds`, subtasks included,
+   * every page up to `maxPages` (100 tasks a page) per chunk of ids. No ids: no request, no tasks.
    */
-  listMyTasks(teamId: string, userId: string, options?: { maxPages?: number }): Promise<TaskSummary[]>
+  listMyTasks(teamId: string, userId: string, options: { listIds: readonly string[]; maxPages?: number }): Promise<TaskSummary[]>
   /** One task with its markdown description, checklists, subtasks, assignees and attachments. */
   getTask(taskId: string): Promise<TaskDetail>
   /** Spaces of a Workspace the token can see (archived ones excluded). */
@@ -67,5 +67,5 @@ export interface TaskTracker {
   deleteComment(commentId: string): Promise<void>
 }
 
-/** Builds a tracker for one token. The worker creates a new one when the token changes. */
-export type TaskTrackerFactory = (token: string) => TaskTracker
+/** Builds a tracker for one Authorization header value. The worker makes a new one when it changes. */
+export type TaskTrackerFactory = (authorization: string) => TaskTracker

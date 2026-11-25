@@ -1,4 +1,4 @@
-// T3. The only file that calls fetch (injected). Worker-only.
+// T3. The only file that calls ClickUp's API with the person's token (fetch is injected). Worker-only.
 import { PluginError } from '../shared/errors'
 import type { Clock } from '../worker/ports'
 import { parseErrorBody } from './mapper'
@@ -11,7 +11,10 @@ export type FetchLike = (url: string, init?: {
 }) => Promise<{ status: number; headers: { get(name: string): string | null }; text(): Promise<string> }>
 
 export interface ClickUpHttpOptions {
+  /** The Authorization header value: a personal token as is, an OAuth token as `Bearer <token>`. */
   token: string
+  /** Shared request budget for every tracker of this worker; none in unit tests. */
+  gate?: RateGate
   fetch: FetchLike
   /** Default https://api.clickup.com/api/v2 */
   baseUrl?: string
@@ -37,6 +40,49 @@ export interface ClickUpHttp {
     path: string,
     options?: { query?: Record<string, string | number | boolean | readonly (string | number)[] | undefined>; body?: unknown }
   ): Promise<T>
+}
+
+/**
+ * A client-side budget under ClickUp's per-token limit (100 requests a minute on Free, Unlimited
+ * and Business), so the plugin slows itself down instead of hitting 429, and stops for everyone
+ * after a 429 until ClickUp's reset time.
+ */
+export interface RateGate {
+  /** Waits for a slot; throws 'rate_limited' when the wait would be longer than the gate allows. */
+  acquire(): Promise<void>
+  /** A 429 arrived: no request until `epochMs`. */
+  blockUntil(epochMs: number): void
+}
+
+export function createRateGate(options: {
+  perMinute: number
+  clock: Clock
+  sleep: (ms: number) => Promise<void>
+  /** Longest wait before giving up with 'rate_limited'. */
+  maxWaitMs: number
+}): RateGate {
+  const sent: number[] = []
+  let blockedUntil = 0
+  return {
+    async acquire() {
+      for (;;) {
+        const now = options.clock()
+        while (sent.length > 0 && now - sent[0]! >= 60_000) sent.shift()
+        const wait = Math.max(blockedUntil - now, sent.length >= options.perMinute ? sent[0]! + 60_000 - now : 0)
+        if (wait <= 0) {
+          sent.push(now)
+          return
+        }
+        if (wait > options.maxWaitMs) {
+          throw new PluginError('rate_limited', 'ClickUp request budget used up for this minute', Math.max(MIN_RETRY_MS, Math.ceil(wait)))
+        }
+        await options.sleep(wait)
+      }
+    },
+    blockUntil(epochMs) {
+      blockedUntil = Math.max(blockedUntil, epochMs)
+    }
+  }
 }
 
 const DEFAULT_BASE_URL = 'https://api.clickup.com/api/v2'
@@ -86,6 +132,7 @@ export function createClickUpHttp(options: ClickUpHttpOptions): ClickUpHttp {
       controller.abort()
     }, timeoutMs)
 
+    await options.gate?.acquire()
     let status: number
     let text: string
     let resetHeader: string | null
@@ -124,7 +171,9 @@ export function createClickUpHttp(options: ClickUpHttpOptions): ClickUpHttp {
         resetHeader !== null && resetHeader.trim() !== '' && Number.isFinite(resetSeconds)
           ? resetSeconds * 1000 - clock()
           : 0
-      throw new PluginError('rate_limited', 'ClickUp rate limit reached', Math.max(MIN_RETRY_MS, Math.ceil(wait)))
+      const retryAfterMs = Math.max(MIN_RETRY_MS, Math.ceil(wait))
+      options.gate?.blockUntil(clock() + retryAfterMs)
+      throw new PluginError('rate_limited', 'ClickUp rate limit reached', retryAfterMs)
     }
     if (method !== 'GET' && (status === 401 || status === 403 || ecode.startsWith('ACCESS_'))) {
       throw new PluginError('forbidden', detail)

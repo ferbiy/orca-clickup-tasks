@@ -1,11 +1,23 @@
 {
   "manifestVersion": 2,
   "id": "clickup-tasks",
-  "name": "ClickUp Tasks",
-  "version": "0.1.0",
-  "description": "Your ClickUp tasks in Orca's sidebar: start any task in its own worktree with your coding agent, then update its status when the agent is done.",
+  "name": "ClickUp Tasks (Overhedge)",
+  "version": "0.2.0",
+  "description": "Your ClickUp tasks from the Lists you choose, in Orca's sidebar: sign in with OAuth, start a task in its own worktree with your coding agent, and move its status by the List's own workflow.",
+  "author": {
+    "name": "Overhedge (fork of gthjnk/orca-clickup-tasks)",
+    "url": "https://github.com/ferbiy"
+  },
+  "repository": "https://github.com/ferbiy/orca-clickup-tasks",
+  "homepage": "https://github.com/ferbiy/orca-clickup-tasks",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "cover": {
+    "path": "assets/cover.png",
+    "alt": "ClickUp Tasks in Orca's sidebar: My tasks grouped by status beside a task's detail with its status menu, checklist, subtasks and comments."
+  },
   "engines": {
-    "orca": ">=1.4.259"
+    "orca": ">=1.4.260"
   },
   "execution": "trusted-worker",
   "pluginApi": 1,
@@ -30,11 +42,8 @@
     { "kind": "storage:own" },
     { "kind": "workspace:read" },
     { "kind": "workspace:create" },
-    { "kind": "workspace:write" },
     { "kind": "agent:launch" },
     { "kind": "agent:read" },
-    { "kind": "terminal:read" },
-    { "kind": "terminal:send" },
     { "kind": "notifications:show" }
   ]
 }

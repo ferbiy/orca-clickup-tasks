@@ -1,24 +1,15 @@
-// "Start in worktree": creates the Orca workspace for a task, briefs the agent, records the link.
-import { PluginError } from '../../shared/errors'
-import type {
-  ResolvedTaskContext,
-  RetryRequest,
-  StartOptions,
-  StartRequest,
-  TaskComment,
-  TaskContextMode,
-  TaskDetail,
-  TaskLink
-} from '../../shared/model'
-import { pickInProgressStatus } from '../../shared/status-pick'
-import { resolveMode } from '../../shared/task-context'
+// "Start in worktree": creates the Orca workspace for a task with the agent and its first prompt in
+// one workspace.create call (not agent.launch, whose prompt Orca can lose: stablyai/orca#41107),
+// records the link, then moves the status and comments (TransitionService).
+import { messageOf, PluginError } from '../../shared/errors'
+import type { ProjectOption, StartOptions, StartRequest, TaskComment, TaskContextMode, TaskDetail, TaskLink } from '../../shared/model'
 import { buildWorkspaceName } from '../../shared/workspace-name'
 import type { Clock, OrcaGateway, PanelPoster } from '../ports'
 import { buildAgentPrompt } from '../prompt'
-import { deliverPrompt, type DeliveryFailure } from './prompt-delivery'
 import type { PrefsStore } from '../stores/prefs-store'
 import type { RunWatcher } from './run-watcher'
 import type { TaskService } from './task-service'
+import type { TransitionService } from './transition-service'
 
 /** Agents offered in the Start form. Ids are what workspace.create's `agent` takes. */
 export const AGENTS: readonly { id: string; label: string }[] = [
@@ -34,23 +25,26 @@ export function agentLabel(id: string): string {
   return AGENTS.find((a) => a.id === id)?.label ?? id
 }
 
+/** Where a project's worktrees are made, for the Select. */
+export function hostLabel(hostId: string): string {
+  if (hostId === 'local') return 'this computer'
+  if (hostId.startsWith('runtime:')) return 'Orca server'
+  if (hostId.startsWith('ssh:')) return 'SSH'
+  if (hostId.startsWith('wsl:')) return 'WSL'
+  return hostId
+}
+
 export interface StartServiceDeps {
   tasks: TaskService
   prefs: PrefsStore
   gateway: OrcaGateway
   watcher: RunWatcher
+  transitions: TransitionService
   post: PanelPoster
   clock: Clock
   /** A fresh random fence per prompt (crypto.randomUUID in the worker). */
   fence: () => string
-  /** Waits (setTimeout in the worker); tests pass one that returns at once. */
-  sleep: (ms: number) => Promise<void>
 }
-
-/** How long a retried agent gets to show up in agents.list before its prompt is given up on. */
-const RETRY_READY_MS = 45_000
-/** An agent already sitting idle is listed now; only a short wait. */
-const IDLE_READY_MS = 5_000
 
 export class StartService {
   constructor(private readonly deps: StartServiceDeps) {}
@@ -58,28 +52,22 @@ export class StartService {
   async options(taskId: string): Promise<StartOptions> {
     // The panel opens a task with tasks.get and start.options together: reuse that fetch.
     const task = await this.deps.tasks.get(taskId, { reuse: true })
-    const [projects, statuses, remembered, settings, missing, clickUp] = await Promise.all([
+    const [projects, start, remembered, settings] = await Promise.all([
       this.gitProjects(),
-      this.deps.tasks.statuses(task.list.id),
+      this.deps.transitions.resolve(task.list.id, 'start'),
       this.deps.prefs.projectForList(task.list.id),
-      this.deps.prefs.settings(),
-      this.deps.prefs.missingAgents(),
-      this.deps.prefs.agentClickUpAll()
+      this.deps.prefs.settings()
     ])
-    const inProgressStatus = pickInProgressStatus(statuses)
     return {
       projects,
       suggestedProjectId: projects.some((p) => p.id === remembered) ? remembered : null,
-      agents: AGENTS.map((a) => ({
-        ...a,
-        ...(missing.includes(a.id) ? { missing: true } : {}),
-        ...(clickUp[a.id] ? { clickUp: clickUp[a.id] } : {})
-      })),
+      agents: AGENTS.map((a) => ({ ...a })),
       workspaceName: buildWorkspaceName(task),
-      inProgressStatus,
+      inProgressStatus: start.status,
+      inProgressWhy: start.why,
       defaults: {
         agent: settings.defaultAgent,
-        moveToInProgress: settings.moveToInProgress && inProgressStatus !== null,
+        moveToInProgress: settings.moveToInProgress && start.status !== null,
         baseBranch: settings.defaultBaseBranch,
         taskContext: settings.taskContext
       }
@@ -90,19 +78,22 @@ export class StartService {
     if (!AGENTS.some((a) => a.id === request.agent)) {
       throw new PluginError('invalid_input', `Unknown agent "${request.agent}".`)
     }
-    const projects = await this.gitProjects()
-    if (!projects.some((p) => p.id === request.projectId)) {
-      throw new PluginError('not_found', 'That project is no longer in Orca.')
-    }
+    const project = (await this.gitProjects()).find(
+      (p) => p.id === request.projectId && (request.hostId === undefined || p.hostId === request.hostId)
+    )
+    if (!project) throw new PluginError('not_found', 'That project is no longer in Orca.')
+    // Scope is checked here (tasks.get refuses a task of a List that is not chosen).
     const task = await this.deps.tasks.get(request.taskId)
     const name = buildWorkspaceName(task)
     const baseBranch = request.baseBranch?.trim()
-    const { prompt, mode } = await this.promptFor(task, request.agent, request.taskContext)
+    const mode = request.taskContext ?? (await this.deps.prefs.settings()).taskContext
+    const prompt = await this.promptFor(task, mode)
 
     let created: { workspaceId: string; terminalId?: string }
     try {
       created = await this.deps.gateway.createWorkspace({
-        projectId: request.projectId,
+        projectId: project.id,
+        hostId: project.hostId,
         name,
         ...(baseBranch ? { baseBranch } : {}),
         agent: request.agent,
@@ -116,13 +107,14 @@ export class StartService {
     // watcher, which stores it and replays early agent events in one step (no lost updates).
     const branch = (await this.readBranch(created.workspaceId)) ?? name
     const now = this.deps.clock()
-    const final = await this.deps.watcher.adopt({
+    let link = await this.deps.watcher.adopt({
       taskId: task.id,
       taskName: task.name,
       taskUrl: task.url,
       listId: task.list.id,
       workspaceId: created.workspaceId,
-      projectId: request.projectId,
+      projectId: project.id,
+      hostId: project.hostId,
       branch,
       agent: request.agent,
       createdAt: now,
@@ -132,108 +124,27 @@ export class StartService {
     })
     // Orca sends no event when the agent never starts: look for ourselves a few times.
     this.deps.watcher.watchStart(created.workspaceId)
+    await this.deps.prefs.setProjectForList(task.list.id, project.id)
+    this.deps.post('link.changed', link)
 
-    await this.deps.prefs.setProjectForList(task.list.id, request.projectId)
-    this.deps.post('link.changed', final)
-
-    if (request.moveToInProgress) await this.moveToInProgress(task.id, task.list.id)
-    return final
+    // A failed status move or comment is reported on the card, never fatal: the worktree exists.
+    const change = await this.deps.transitions.onStart(task, { move: request.moveToInProgress, branch, agent: request.agent })
+    link = (await this.deps.watcher.recordStart(created.workspaceId, change)) ?? link
+    return link
   }
 
-  /**
-   * Starts an agent again in a run's existing worktree (same branch), with a freshly built prompt:
-   * the one before was never delivered when the agent failed to start.
-   */
-  async retry(request: RetryRequest): Promise<TaskLink> {
-    if (!AGENTS.some((a) => a.id === request.agent)) {
-      throw new PluginError('invalid_input', `Unknown agent "${request.agent}".`)
-    }
-    const link = await this.deps.watcher.linkFor(request.workspaceId)
-    if (!link) throw new PluginError('not_found', 'This run is no longer linked to the task.')
-    const task = await this.deps.tasks.get(link.taskId)
-    const { prompt, mode } = await this.promptFor(task, request.agent, request.taskContext)
-    const relaunched = await this.deps.watcher.relaunch(request.workspaceId, request.agent, async () => {
-      try {
-        return await this.deps.gateway.launchAgent({ workspaceId: request.workspaceId, agent: request.agent })
-      } catch (error) {
-        throw new PluginError('orca_failed', `Orca could not start ${agentLabel(request.agent)}: ${messageOf(error)}`)
-      }
-    })
-    // In the background: the agent takes seconds to be ready. If this fails, the run check turns the
-    // run 'agent_idle' and the card offers "Send the task prompt".
-    if (relaunched.terminalId) {
-      this.lastDelivery = this.deliver(relaunched.workspaceId, relaunched.terminalId, prompt, mode, RETRY_READY_MS).then((failure) => {
-        if (failure) this.deps.gateway.log(`retry prompt not delivered: ${failure}`)
-        return failure
-      })
-    }
-    return relaunched
-  }
-
-  /** The background delivery a retry started (tests await it). */
-  lastDelivery: Promise<DeliveryFailure | null> = Promise.resolve(null)
-
-  /**
-   * Types the task prompt into a run's idle agent (the card's "Send the task prompt", or "Send the
-   * task details" with `taskContext: 'snapshot-only'` when the agent reported no ClickUp access).
-   * Orca switches to the workspace first: it only accepts input for the focused worktree.
-   */
-  async sendPrompt(workspaceId: string, taskContext?: TaskContextMode): Promise<TaskLink> {
-    const link = await this.deps.watcher.linkFor(workspaceId)
-    if (!link) throw new PluginError('not_found', 'This run is no longer linked to the task.')
-    if (!link.terminalId) throw new PluginError('not_found', 'The agent terminal of this run is not known. Retry instead.')
-    const task = await this.deps.tasks.get(link.taskId)
-    const { prompt, mode } = await this.promptFor(task, link.agent, taskContext ?? link.taskContext)
-    const failure = await this.deliver(workspaceId, link.terminalId, prompt, mode, IDLE_READY_MS)
-    if (failure === 'agent_not_ready') throw new PluginError('orca_failed', 'No agent is running in that terminal any more. Retry instead.')
-    if (failure) throw new PluginError('orca_failed', 'Orca did not take the prompt. Open the workspace and paste it from "Task prompt".')
-    return (await this.deps.watcher.linkFor(workspaceId)) ?? link
-  }
-
-  private async deliver(
-    workspaceId: string,
-    terminalId: string,
-    prompt: string,
-    mode: ResolvedTaskContext,
-    readyTimeoutMs: number
-  ): Promise<DeliveryFailure | null> {
-    const failure = await deliverPrompt(
-      { gateway: this.deps.gateway, sleep: this.deps.sleep },
-      { workspaceId, terminalId, prompt },
-      { readyTimeoutMs }
-    )
-    if (!failure) {
-      await this.deps.watcher.promptSent(workspaceId)
-      await this.deps.watcher.contextSent(workspaceId, mode)
-    }
-    return failure
-  }
-
-  /** The task prompt for a run, built in the mode the run used, to paste when the agent did not get it. */
+  /** The task prompt for a run, to paste by hand when the agent did not get it. Same mode as the run. */
   async prompt(workspaceId: string): Promise<string> {
     const link = await this.deps.watcher.linkFor(workspaceId)
     if (!link) throw new PluginError('not_found', 'This run is no longer linked to the task.')
     const task = await this.deps.tasks.get(link.taskId)
-    return (await this.promptFor(task, link.agent, link.taskContext)).prompt
+    return this.promptFor(task, link.taskContext ?? 'link-and-snapshot')
   }
 
-  /**
-   * The one prompt builder every entry point shares (§6): fetches the newest comments (a failure is
-   * logged and the snapshot just omits them), resolves the mode from the override or the setting
-   * and the agent's learned ClickUp access, and builds the prompt.
-   */
-  private async promptFor(
-    task: TaskDetail,
-    agent: string,
-    override?: TaskContextMode
-  ): Promise<{ prompt: string; mode: ResolvedTaskContext }> {
-    const [comments, settings, learned] = await Promise.all([
-      this.commentsFor(task.id),
-      this.deps.prefs.settings(),
-      this.deps.prefs.agentClickUp(agent)
-    ])
-    const mode = resolveMode(override ?? settings.taskContext, learned)
-    return { prompt: buildAgentPrompt(task, { fence: this.deps.fence(), mode, comments }), mode }
+  /** Fetches the newest comments (a failure only drops them from the snapshot) and builds the prompt. */
+  private async promptFor(task: TaskDetail, mode: TaskContextMode): Promise<string> {
+    const comments = mode === 'link-only' ? [] : await this.commentsFor(task.id)
+    return buildAgentPrompt(task, { fence: this.deps.fence(), mode, comments })
   }
 
   private async commentsFor(taskId: string): Promise<TaskComment[]> {
@@ -245,21 +156,13 @@ export class StartService {
     }
   }
 
-  async open(workspaceId: string): Promise<void> {
-    try {
-      await this.deps.gateway.openWorkspace(workspaceId)
-    } catch (error) {
-      throw new PluginError('orca_failed', `Orca could not open the workspace: ${messageOf(error)}`)
-    }
-  }
-
-  private async gitProjects() {
+  /** Git projects Orca shows, on this computer or a paired server / SSH host. */
+  private async gitProjects(): Promise<ProjectOption[]> {
     const projects = await this.deps.gateway.listProjects()
-    // v0.1: local git projects only; SSH/remote hosts and folders are out of scope.
     return projects
-      .filter((p) => p.kind === 'git' && !p.hidden && p.hostId === 'local')
-      .map((p) => ({ id: p.id, name: p.name, hostId: p.hostId }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .filter((p) => p.kind === 'git' && !p.hidden)
+      .map((p) => ({ id: p.id, name: p.name, hostId: p.hostId, hostLabel: hostLabel(p.hostId) }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.hostLabel.localeCompare(b.hostLabel))
   }
 
   /** Orca derives the branch from the name; read the real one back. Best effort. */
@@ -272,18 +175,4 @@ export class StartService {
       return null
     }
   }
-
-  /** A failed status move is logged, never fatal: the worktree and agent already exist. */
-  private async moveToInProgress(taskId: string, listId: string): Promise<void> {
-    try {
-      const status = pickInProgressStatus(await this.deps.tasks.statuses(listId))
-      if (status) await this.deps.tasks.update({ taskId, status })
-    } catch (error) {
-      this.deps.gateway.log(`move to in progress failed: ${messageOf(error)}`)
-    }
-  }
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

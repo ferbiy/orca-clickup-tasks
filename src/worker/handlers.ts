@@ -12,11 +12,16 @@ import type {
   PluginSettings,
   Priority,
   SettingsState,
+  StatusOverride,
+  StatusTransition,
   TaskContextMode,
   TaskPatch
 } from '../shared/model'
 import type { Clipboard, PanelPoster } from './ports'
 import type { AuthService } from './services/auth-service'
+import type { OAuthService } from './services/oauth-service'
+import type { ScopeService } from './services/scope-service'
+import type { TransitionService } from './services/transition-service'
 import type { EditService } from './services/edit-service'
 import { AGENTS, type StartService } from './services/start-service'
 import type { RunWatcher } from './services/run-watcher'
@@ -26,6 +31,9 @@ import type { PrefsStore } from './stores/prefs-store'
 
 export interface Services {
   auth: AuthService
+  oauth: OAuthService
+  scope: ScopeService
+  transitions: TransitionService
   tasks: TaskService
   edit: EditService
   start: StartService
@@ -54,7 +62,8 @@ export async function respond<T>(
   } catch (error) {
     if (!(error instanceof PluginError)) log(`${name} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
     const shape = toErrorShape(error)
-    if (shape.code === 'auth_invalid' && name !== 'auth.connect' && onAuthInvalid) {
+    // A refused credential while connecting is the attempt failing, not the saved token revoked.
+    if (shape.code === 'auth_invalid' && !name.startsWith('auth.') && onAuthInvalid) {
       await onAuthInvalid().catch((e: unknown) => log(`invalidate failed: ${String(e)}`))
     }
     return { ok: false, error: shape }
@@ -87,7 +96,7 @@ function requireString(value: unknown, field: string): string {
 
 const MAX_BASE_BRANCH = 200
 
-const TASK_CONTEXT_MODES: readonly string[] = ['auto', 'link-and-snapshot', 'link-only', 'snapshot-only']
+const TASK_CONTEXT_MODES: readonly string[] = ['link-and-snapshot', 'link-only', 'snapshot-only']
 
 /** A task-context mode from the panel, or undefined; anything else is refused. */
 function optionalTaskContext(value: unknown): TaskContextMode | undefined {
@@ -119,7 +128,7 @@ export function parseSettingsPatch(input: unknown): Partial<PluginSettings> {
     }
     patch.defaultBaseBranch = branch
   }
-  for (const key of ['moveToInProgress', 'notifyOnDone', 'notifyOnNeedsInput'] as const) {
+  for (const key of ['moveToInProgress', 'commentOnStart', 'moveOnDone', 'notifyOnDone', 'notifyOnNeedsInput'] as const) {
     if (v[key] === undefined) continue
     if (typeof v[key] !== 'boolean') throw new PluginError('invalid_input', `${key} must be true or false.`)
     patch[key] = v[key]
@@ -294,6 +303,23 @@ export function parseCommentInput(value: unknown): CommentInput {
   return { text, mentions: v.mentions.map(parsePerson) }
 }
 
+/** 'start' | 'done' from the panel. */
+function requireTransition(value: unknown): StatusTransition {
+  if (value !== 'start' && value !== 'done') throw new PluginError('invalid_input', 'Bad transition.')
+  return value
+}
+
+/** A status override from the panel: auto, none, or a status name (1–200 chars). */
+export function parseOverride(value: unknown): StatusOverride {
+  const v = value as { mode?: unknown; name?: unknown } | null
+  if (v?.mode === 'auto') return { mode: 'auto' }
+  if (v?.mode === 'none') return { mode: 'none' }
+  if (v?.mode === 'status' && typeof v.name === 'string' && v.name.trim() !== '' && v.name.length <= 200) {
+    return { mode: 'status', name: v.name }
+  }
+  throw new PluginError('invalid_input', 'Bad status choice.')
+}
+
 function optionalEpochMs(value: unknown, field: string): number | undefined {
   if (value === undefined) return undefined
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new PluginError('invalid_input', `${field} must be epoch ms.`)
@@ -309,6 +335,39 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
   handle('auth.disconnect', () => r('auth.disconnect', () => s.auth.disconnect()))
   handle('auth.selectTeam', (input) =>
     r('auth.selectTeam', () => s.auth.selectTeam(requireString(input?.teamId, 'teamId')))
+  )
+  handle('auth.oauthSaveApp', (input) =>
+    r('auth.oauthSaveApp', () =>
+      s.oauth.saveApp({
+        clientId: requireString(input?.clientId, 'clientId'),
+        ...(typeof input?.clientSecret === 'string' ? { clientSecret: input.clientSecret } : {}),
+        ...(typeof input?.redirectUri === 'string' ? { redirectUri: input.redirectUri } : {})
+      })
+    )
+  )
+  handle('auth.oauthForgetApp', () => r('auth.oauthForgetApp', () => s.oauth.forgetApp()))
+  handle('auth.oauthBegin', () => r('auth.oauthBegin', () => s.oauth.begin()))
+  handle('auth.oauthPaste', (input) => r('auth.oauthPaste', () => s.oauth.completeFromUrl(requireString(input?.url, 'url'))))
+  handle('auth.oauthCancel', () =>
+    r('auth.oauthCancel', async () => {
+      await s.oauth.cancel()
+      return s.auth.announce()
+    })
+  )
+
+  handle('scope.get', () => r('scope.get', () => s.scope.get()))
+  handle('scope.set', (input) =>
+    r('scope.set', async () => {
+      const scope = await s.scope.set(input?.scope)
+      s.post('tasks.changed', { fetchedAt: s.clock() })
+      return scope
+    })
+  )
+  handle('lists.mapping', (input) => r('lists.mapping', () => s.transitions.mapping(requireString(input?.listId, 'listId'))))
+  handle('lists.setOverride', (input) =>
+    r('lists.setOverride', () =>
+      s.transitions.setOverride(requireString(input?.listId, 'listId'), requireTransition(input?.which), parseOverride(input?.override))
+    )
   )
 
   handle('tasks.list', (input) => r('tasks.list', () => s.tasks.list(input?.refresh === true)))
@@ -418,6 +477,7 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
       s.start.run({
         taskId: requireString(input?.taskId, 'taskId'),
         projectId: requireString(input?.projectId, 'projectId'),
+        ...(typeof input?.hostId === 'string' && input.hostId ? { hostId: input.hostId } : {}),
         agent: requireString(input?.agent, 'agent'),
         ...(typeof input?.baseBranch === 'string' ? { baseBranch: input.baseBranch } : {}),
         moveToInProgress: input?.moveToInProgress === true,
@@ -426,21 +486,11 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
     )
   )
 
-  const settingsState = async (): Promise<SettingsState> => {
-    const learned = await s.prefs.agentClickUpAll()
-    return {
-      settings: await s.prefs.settings(),
-      agents: AGENTS.map((a) => ({ ...a })),
-      clickUpReaders: AGENTS.filter((a) => learned[a.id] === 'tool').map((a) => a.label)
-    }
-  }
+  const settingsState = async (): Promise<SettingsState> => ({
+    settings: await s.prefs.settings(),
+    agents: AGENTS.map((a) => ({ ...a }))
+  })
   handle('settings.get', () => r('settings.get', settingsState))
-  handle('settings.forgetAgentContext', () =>
-    r('settings.forgetAgentContext', async () => {
-      await s.prefs.forgetAgentClickUp()
-      return settingsState()
-    })
-  )
   handle('settings.update', (input) =>
     r('settings.update', async () => {
       await s.prefs.updateSettings(parseSettingsPatch(input))
@@ -467,12 +517,6 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
   )
 
   handle('links.list', () => r('links.list', () => s.links.list()))
-  handle('links.open', (input) =>
-    r('links.open', async () => {
-      await s.start.open(requireString(input?.workspaceId, 'workspaceId'))
-      return { ok: true as const }
-    })
-  )
 
   handle('runs.check', (input) =>
     r('runs.check', async () => {
@@ -481,20 +525,7 @@ export function registerHandlers(orca: OrcaWorkerApi, s: Services): void {
       return s.links.list()
     })
   )
-  handle('runs.retry', (input) =>
-    r('runs.retry', () =>
-      s.start.retry({
-        workspaceId: requireString(input?.workspaceId, 'workspaceId'),
-        agent: requireString(input?.agent, 'agent'),
-        ...(optionalTaskContext(input?.taskContext) ? { taskContext: optionalTaskContext(input?.taskContext) } : {})
-      })
-    )
-  )
-  handle('runs.sendPrompt', (input) =>
-    r('runs.sendPrompt', () =>
-      s.start.sendPrompt(requireString(input?.workspaceId, 'workspaceId'), optionalTaskContext(input?.taskContext))
-    )
-  )
+
   handle('runs.prompt', (input) =>
     r('runs.prompt', async () => ({ text: await s.start.prompt(requireString(input?.workspaceId, 'workspaceId')) }))
   )

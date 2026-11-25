@@ -9,18 +9,20 @@ import type {
   CommentCursor,
   CommentInput,
   CommentPage,
+  ListStatusMapping,
   ListTasksPage,
   Person,
   PluginSettings,
-  RetryRequest,
+  Scope,
   SettingsState,
   SpaceChildren,
   SpaceRef,
   StartOptions,
   StartRequest,
   StatusOption,
+  StatusOverride,
+  StatusTransition,
   TaskComment,
-  TaskContextMode,
   TaskDetail,
   TaskLink,
   TaskListResult,
@@ -32,16 +34,38 @@ export {}
 
 declare module 'orca' {
   interface PluginRequests {
-    /** Whether a token is saved and verified, its user, Workspaces and the selected one. */
+    /** Whether a credential is saved and verified, how, its user, Workspaces, the selected one, the OAuth app. */
     'auth.state': { output: Result<AuthState> }
-    /** Verifies `token` with ClickUp, then saves it to secrets. Selects the Workspace if only one. */
+    /** Personal-token fallback: verifies `token` with ClickUp, then saves it to secrets. */
     'auth.connect': { input: { token: string }; output: Result<AuthState> }
-    /** Forgets the token, the Workspace choice and the task cache. Links are kept. */
+    /** Saves the OAuth app (client id, secret, redirect URL) to secrets; the secret may be left out to keep it. */
+    'auth.oauthSaveApp': { input: { clientId: string; clientSecret?: string; redirectUri?: string }; output: Result<AuthState> }
+    /** Forgets the OAuth app's client id and secret. */
+    'auth.oauthForgetApp': { output: Result<AuthState> }
+    /** Starts a sign-in: state, loopback listener, authorize URL (in `oauth.pending`). */
+    'auth.oauthBegin': { output: Result<AuthState> }
+    /** Finishes a sign-in from the address the browser ended on (when the listener is not reachable). */
+    'auth.oauthPaste': { input: { url: string }; output: Result<AuthState> }
+    /** Stops waiting for a sign-in. */
+    'auth.oauthCancel': { output: Result<AuthState> }
+    /** Signs out: forgets the token, the Workspace choice and the task cache. Links and the OAuth app are kept. */
     'auth.disconnect': { output: Result<AuthState> }
     /** Selects the Workspace whose tasks the list shows. */
     'auth.selectTeam': { input: { teamId: string }; output: Result<AuthState> }
 
-    /** My open tasks from cache; `refresh` fetches from ClickUp first. */
+    /** The Spaces, Folders and Lists Orca may see. */
+    'scope.get': { output: Result<Scope> }
+    /** Saves which Spaces, Folders and Lists Orca may see; drops the cached task list. */
+    'scope.set': { input: { scope: Scope }; output: Result<Scope> }
+    /** One List's statuses and what the start and done transitions do there. */
+    'lists.mapping': { input: { listId: string }; output: Result<ListStatusMapping> }
+    /** Sets one List's start or done status: automatic, never change, or a named status. */
+    'lists.setOverride': {
+      input: { listId: string; which: StatusTransition; override: StatusOverride }
+      output: Result<ListStatusMapping>
+    }
+
+    /** My open tasks in the chosen Lists, from cache; `refresh` fetches from ClickUp first. */
     'tasks.list': { input: { refresh?: boolean }; output: Result<TaskListResult> }
     /** One task in full, always fetched from ClickUp. */
     'tasks.get': { input: { taskId: string }; output: Result<TaskDetail> }
@@ -110,29 +134,18 @@ declare module 'orca' {
      * a wrong type or an unknown agent id is `invalid_input` and nothing is saved.
      */
     'settings.update': { input: Partial<PluginSettings>; output: Result<SettingsState> }
-    /** Forgets the learned ClickUp access of every agent (the Settings tab's Forget button). */
-    'settings.forgetAgentContext': { output: Result<SettingsState> }
+
     /** Drops cached tasks, statuses and the Browse tree (not the token, settings or links), then posts 'tasks.changed'. */
     'cache.clear': { output: Result<{ ok: true }> }
 
     /** Every task <-> workspace link, newest first. */
     'links.list': { output: Result<TaskLink[]> }
-    /** Shows a linked workspace in Orca. */
-    'links.open': { input: { workspaceId: string }; output: Result<{ ok: true }> }
 
     /**
-     * Looks at runs Orca's events may have left behind (agents.list, then the agent's terminal) and
-     * marks them 'stalled' or 'failed'. One run with `workspaceId`, else every run not done.
-     * Answers every link, newest first.
+     * Looks at runs Orca's events may have left behind (agents.list only) and marks them 'stalled'.
+     * One run with `workspaceId`, else every run not done. Answers every link, newest first.
      */
     'runs.check': { input: { workspaceId?: string }; output: Result<TaskLink[]> }
-    /** Starts an agent again in a run's worktree (same branch), with the task prompt. */
-    'runs.retry': { input: RetryRequest; output: Result<TaskLink> }
-    /**
-     * Types the task prompt into the run's agent; Orca switches to the workspace to do it.
-     * `taskContext` overrides the run's mode ("Send the task details" sends 'snapshot-only').
-     */
-    'runs.sendPrompt': { input: { workspaceId: string; taskContext?: TaskContextMode }; output: Result<TaskLink> }
     /** The task prompt for a run, for the person to paste when the agent never got it. */
     'runs.prompt': { input: { workspaceId: string }; output: Result<{ text: string }> }
     /** Stops tracking a run. The worktree and its terminals stay. Posts 'link.removed'. */
@@ -146,7 +159,9 @@ declare module 'orca' {
     'link.changed': TaskLink
     /** A link was removed (its workspace was deleted in Orca, or the person stopped tracking it). */
     'link.removed': { workspaceId: string }
-    /** The token or Workspace changed in another panel run. */
+    /** The credential, Workspace or OAuth sign-in state changed. */
     'auth.changed': AuthState
+    /** A sign-in that came back through the loopback listener failed (the panel shows why). */
+    'oauth.failed': { message: string }
   }
 }

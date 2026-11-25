@@ -1,13 +1,15 @@
-// Owns the ClickUp connection: the token (secrets), the verified profile and the chosen Workspace.
-// Other services get a ready tracker and session from here, never the token itself.
+// Owns the ClickUp connection: the credential (secrets), how it was obtained (OAuth or a personal
+// token), the verified profile and the chosen Workspace. Other services get a ready tracker and
+// session from here, never the token itself.
 import { PluginError } from '../../shared/errors'
-import type { AuthState, ClickUpUser, Team } from '../../shared/model'
+import type { AuthMethod, AuthState, ClickUpUser, OAuthAppState, Team } from '../../shared/model'
 import type { TaskTracker, TaskTrackerFactory } from '../../tracker/tracker'
 import type { KeyValueStore, PanelPoster, SecretStore } from '../ports'
 import type { CacheStore } from '../stores/cache-store'
 import type { PrefsStore } from '../stores/prefs-store'
 
 const TOKEN_KEY = 'clickup.token'
+const METHOD_KEY = 'auth.method'
 const PROFILE_KEY = 'auth.profile'
 
 /** What the services need to call ClickUp for the person. */
@@ -31,8 +33,17 @@ export interface AuthServiceDeps {
   post: PanelPoster
 }
 
+/** The Authorization header ClickUp expects: OAuth tokens as Bearer, personal tokens as they are. */
+export function authorizationFor(token: string, method: AuthMethod): string {
+  return method === 'oauth' ? `Bearer ${token}` : token
+}
+
+const NO_OAUTH: OAuthAppState = { clientId: null, redirectUri: '', pending: null }
+
 export class AuthService {
-  private memo: { token: string; tracker: TaskTracker } | null = null
+  private memo: { header: string; tracker: TaskTracker } | null = null
+  /** Set by the OAuth service after both exist (it needs this service to save what it gets). */
+  oauthState: () => Promise<OAuthAppState> = async () => NO_OAUTH
 
   constructor(private readonly deps: AuthServiceDeps) {}
 
@@ -42,6 +53,8 @@ export class AuthService {
     const profile = token ? await this.readProfile() : null
     return {
       connected: Boolean(token && profile),
+      method: token ? await this.method() : null,
+      oauth: await this.oauthState(),
       user: profile?.user ?? null,
       teams: profile?.teams ?? [],
       teamId: profile ? await this.deps.prefs.teamId() : null,
@@ -49,14 +62,17 @@ export class AuthService {
     }
   }
 
-  /** Verifies before saving, so a refused token never reaches the keyring. */
+  /** The personal-token fallback (dev use, or when no OAuth app is set up). */
   async connect(rawToken: string): Promise<AuthState> {
     const token = rawToken.trim()
     if (!token) throw new PluginError('invalid_input', 'Paste your ClickUp API token.')
-    if ((await this.deps.secrets.protection()) === 'unavailable') {
-      throw new PluginError('secrets_unavailable', 'This system has no keychain to store the token safely.')
-    }
-    const tracker = this.deps.trackerFor(token)
+    return this.connectWith(token, 'personal')
+  }
+
+  /** Verifies before saving, so a refused credential never reaches the keyring. */
+  async connectWith(token: string, method: AuthMethod): Promise<AuthState> {
+    await this.requireKeyring()
+    const tracker = this.deps.trackerFor(authorizationFor(token, method))
     const user = await tracker.verify()
     const teams = await tracker.listTeams()
 
@@ -66,6 +82,7 @@ export class AuthService {
       await this.deps.prefs.setTeamId(null)
     }
     await this.deps.secrets.set(TOKEN_KEY, token)
+    await this.deps.kv.set(METHOD_KEY, method)
     await this.deps.kv.set(PROFILE_KEY, { user: { ...user }, teams: teams.map((t) => ({ ...t })) })
     await this.deps.prefs.setUserId(user.id)
 
@@ -73,13 +90,26 @@ export class AuthService {
     if (!current || !teams.some((t) => t.id === current)) {
       await this.deps.prefs.setTeamId(teams.length === 1 ? teams[0]!.id : null)
     }
-    this.memo = { token, tracker }
+    this.memo = { header: authorizationFor(token, method), tracker }
     return this.announce()
   }
 
-  /** Forgets the token, profile, Workspace choice and cache. Task links stay. */
+  async requireKeyring(): Promise<void> {
+    if ((await this.deps.secrets.protection()) === 'unavailable') {
+      throw new PluginError(
+        'secrets_unavailable',
+        'This system has no keychain to store the token safely. On Linux, install and unlock GNOME Keyring or KWallet, then restart Orca.'
+      )
+    }
+  }
+
+  /**
+   * Signs out: forgets the token, profile, Workspace choice and cache. Task links and the OAuth app
+   * credentials stay. ClickUp has no token-revoke API; the panel says how to cut access in ClickUp.
+   */
   async disconnect(): Promise<AuthState> {
     await this.deps.secrets.delete(TOKEN_KEY)
+    await this.deps.kv.delete(METHOD_KEY)
     await this.deps.kv.delete(PROFILE_KEY)
     await this.deps.prefs.setTeamId(null)
     await this.deps.prefs.setUserId(null)
@@ -89,8 +119,8 @@ export class AuthService {
   }
 
   /**
-   * ClickUp refused the saved token (revoked or rotated): forget it so the panel shows Connect
-   * again instead of failing every request. Prefs and cache stay for a reconnect as the same user.
+   * ClickUp refused the saved token (revoked, app removed, or rotated): forget it so the panel shows
+   * Connect again instead of failing every request. Prefs and cache stay for a reconnect as the same user.
    */
   async invalidate(): Promise<void> {
     if (!(await this.deps.secrets.get(TOKEN_KEY))) return
@@ -104,7 +134,7 @@ export class AuthService {
     const profile = await this.readProfile()
     if (!profile) throw new PluginError('not_connected', 'Connect ClickUp first.')
     if (!profile.teams.some((t) => t.id === teamId)) {
-      throw new PluginError('invalid_input', 'That Workspace is not available to this token.')
+      throw new PluginError('invalid_input', 'That Workspace is not available to this account.')
     }
     if ((await this.deps.prefs.teamId()) !== teamId) {
       await this.deps.cache.clear()
@@ -113,11 +143,12 @@ export class AuthService {
     return this.announce()
   }
 
-  /** A tracker for the saved token. Throws 'not_connected' without one. */
+  /** A tracker for the saved credential. Throws 'not_connected' without one. */
   async tracker(): Promise<TaskTracker> {
     const token = await this.deps.secrets.get(TOKEN_KEY)
     if (!token) throw new PluginError('not_connected', 'Connect ClickUp first.')
-    if (this.memo?.token !== token) this.memo = { token, tracker: this.deps.trackerFor(token) }
+    const header = authorizationFor(token, await this.method())
+    if (this.memo?.header !== header) this.memo = { header, tracker: this.deps.trackerFor(header) }
     return this.memo.tracker
   }
 
@@ -130,10 +161,15 @@ export class AuthService {
     return { tracker, teamId, userId }
   }
 
-  private async announce(): Promise<AuthState> {
+  async announce(): Promise<AuthState> {
     const state = await this.state()
     this.deps.post('auth.changed', state)
     return state
+  }
+
+  /** Tokens saved before OAuth existed have no method: they are personal tokens. */
+  private async method(): Promise<AuthMethod> {
+    return (await this.deps.kv.get(METHOD_KEY)) === 'oauth' ? 'oauth' : 'personal'
   }
 
   private async readProfile(): Promise<Profile | null> {
