@@ -3,7 +3,7 @@
 import { PluginError } from '../shared/errors'
 import { commentParts } from '../shared/edit'
 import type { CommentInput, DateValue, Priority, TaskPatch, TaskSummary } from '../shared/model'
-import type { TaskTracker, TaskTrackerFactory } from '../tracker/tracker'
+import { LIST_IDS_PER_REQUEST, type TaskTracker, type TaskTrackerFactory } from '../tracker/tracker'
 import { createClickUpHttp, type ClickUpHttp, type FetchLike, type RateGate } from './http'
 import {
   mapCommentPage,
@@ -25,7 +25,6 @@ import {
 
 const PAGE_SIZE = 100
 const DEFAULT_MAX_PAGES = 5
-const LIST_IDS_PER_REQUEST = 40
 
 function requireId(value: string, what: string): string {
   if (value.trim() === '') throw new PluginError('invalid_input', `${what} is required`)
@@ -66,6 +65,30 @@ export function createClickUpTracker(http: ClickUpHttp): TaskTracker {
         }
       }
       return tasks
+    },
+
+    async queryTasks(teamId, options) {
+      const team = requireId(teamId, 'teamId')
+      // Never an unfiltered Workspace-wide query: no Lists, no request.
+      if (options.listIds.length === 0) return { tasks: [], lastPage: true }
+      if (options.listIds.length > LIST_IDS_PER_REQUEST) {
+        throw new PluginError('invalid_input', `At most ${LIST_IDS_PER_REQUEST} Lists per request`)
+      }
+      const json = await http.request<unknown>('GET', `/team/${team}/task`, {
+        query: {
+          list_ids: options.listIds,
+          ...(options.assigneeId ? { assignees: [options.assigneeId] } : {}),
+          ...(options.statuses && options.statuses.length > 0 ? { statuses: options.statuses } : {}),
+          include_closed: options.includeClosed,
+          subtasks: true,
+          page: options.page
+        }
+      })
+      const result = parseTaskPage(json)
+      return {
+        tasks: result.tasks.map(mapTaskSummary),
+        lastPage: result.lastPage === true || result.rawCount < PAGE_SIZE
+      }
     },
 
     async getTask(taskId) {

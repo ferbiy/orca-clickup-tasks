@@ -18,6 +18,9 @@ import type {
   Team
 } from '../shared/model'
 
+/** List ids one Workspace task query may carry (ClickUp ORs them); callers chunk by it. */
+export const LIST_IDS_PER_REQUEST = 40
+
 export interface TaskTracker {
   /** Checks the token and returns its user. Throws 'auth_invalid' when refused. */
   verify(): Promise<ClickUpUser>
@@ -28,6 +31,15 @@ export interface TaskTracker {
    * every page up to `maxPages` (100 tasks a page) per chunk of ids. No ids: no request, no tasks.
    */
   listMyTasks(teamId: string, userId: string, options: { listIds: readonly string[]; maxPages?: number }): Promise<TaskSummary[]>
+  /**
+   * One page (100 tasks) of the Workspace's tasks in `listIds` (at most 40 ids; never empty),
+   * subtasks included, optionally only those assigned to `assigneeId` or in one of `statuses`.
+   * Closed tasks only with `includeClosed` (ClickUp also returns them when a closed status is asked).
+   */
+  queryTasks(
+    teamId: string,
+    options: { listIds: readonly string[]; assigneeId?: string; includeClosed: boolean; statuses?: readonly string[]; page: number }
+  ): Promise<{ tasks: TaskSummary[]; lastPage: boolean }>
   /** One task with its markdown description, checklists, subtasks, assignees and attachments. */
   getTask(taskId: string): Promise<TaskDetail>
   /** Spaces of a Workspace the token can see (archived ones excluded). */

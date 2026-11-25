@@ -135,3 +135,17 @@ test('the OAuth app secret never reaches storage, posts or answers', async () =>
   assert.deepEqual(worker.refusals, [])
   await worker.deactivate()
 })
+
+test('Tasks page commands are registered; a palette run and a signed-out list ask ClickUp nothing', async () => {
+  const host = mockHost({ capabilities: CAPABILITIES, results: { 'secrets.protection': { status: 'os-keyring' } } })
+  const worker = await mountWorker(main, { host, events: ['agent.status.changed', 'workspace.removed'] })
+  const palette = (await worker.command('taskSource.clickup.list')) as { items: unknown[]; notice: string }
+  assert.deepEqual(palette.items, [])
+  assert.match(palette.notice, /Tasks page/)
+  const signedOut = (await worker.command('taskSource.clickup.list', { query: '', filters: {} })) as { items: unknown[]; notice: string }
+  assert.deepEqual(signedOut.items, [])
+  assert.match(signedOut.notice, /Sign in/)
+  await assert.rejects(worker.command('taskSource.clickup.get'), /Tasks page/)
+  assert.deepEqual(worker.refusals, [])
+  await worker.deactivate()
+})

@@ -155,6 +155,34 @@ export class TaskService {
     })
   }
 
+  /**
+   * One page of the Workspace's tasks in `listIds` (the Tasks page's views other than "mine, open"),
+   * always from ClickUp, deduped while in flight. Lists outside the scope are dropped before the
+   * query, and tasks outside it after.
+   */
+  async queryTasks(params: {
+    listIds: readonly string[]
+    assigneeId?: string
+    includeClosed: boolean
+    statuses?: readonly string[]
+    page: number
+  }): Promise<{ tasks: TaskSummary[]; lastPage: boolean }> {
+    const { tracker, teamId } = await this.deps.auth.session()
+    const ids = await this.requireScope().listIds()
+    const listIds = params.listIds.filter((id) => ids.has(id))
+    if (listIds.length === 0) return { tasks: [], lastPage: true }
+    const query = { ...params, listIds }
+    return this.shared(`query:${teamId}:${JSON.stringify(query)}`, async () => {
+      const result = await tracker.queryTasks(teamId, query)
+      return { tasks: result.tasks.filter((t) => ids.has(t.list.id)), lastPage: result.lastPage }
+    })
+  }
+
+  /** A List's statuses when they are cached, without asking ClickUp. */
+  async cachedStatuses(listId: string): Promise<StatusOption[] | null> {
+    return this.deps.cache.readStatuses(listId, this.deps.clock(), this.statusesMaxAgeMs)
+  }
+
   /** Drops the task, status, Space and Folder caches and the in-memory detail memo (cache.clear). */
   async clearCaches(): Promise<void> {
     await this.deps.cache.clear()

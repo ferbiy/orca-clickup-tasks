@@ -2,7 +2,8 @@
 // ({ [listId]: projectId }), 'prefs.settings' (PluginSettings), 'prefs.scope:<teamId>' (Scope: which
 // Spaces, Folders and Lists Orca may see in that Workspace) and 'prefs.statusMap' ({ [listId]: { start?, done? } } status
 // overrides). The old 'prefs.agent' key is still read as the fallback for settings.defaultAgent.
-// Worker-only.
+// 'prefs.settings' holds only the fields the person set (plus `version`), so a later default change
+// reaches everyone who never touched that field. Worker-only.
 import type { JsonValue } from 'orca'
 import { EMPTY_SCOPE, type PluginSettings, type Scope, type StatusOverride, type StatusTransition, type TaskContextMode } from '../../shared/model'
 import type { KeyValueStore } from '../ports'
@@ -11,12 +12,19 @@ export const DEFAULT_SETTINGS: Readonly<PluginSettings> = {
   defaultAgent: 'claude',
   moveToInProgress: true,
   commentOnStart: true,
-  moveOnDone: true,
+  // Off: agents set their own review status; the person turns this on per install if wanted.
+  moveOnDone: false,
   defaultBaseBranch: '',
   notifyOnDone: true,
   notifyOnNeedsInput: false,
   taskContext: 'link-and-snapshot'
 }
+
+/**
+ * Version of the stored settings shape. 0.2.0 and older stored no version and saved every field on
+ * any change, so a stored `moveOnDone: true` there is the old default, not a choice (see storedSettings).
+ */
+const SETTINGS_VERSION = 2
 
 const CONTEXT_MODES: readonly string[] = ['link-and-snapshot', 'link-only', 'snapshot-only']
 const MAX_SCOPE_ENTRIES = 500
@@ -137,10 +145,23 @@ export class PrefsStore {
     await this.kv.set('prefs.statusMap', map as unknown as JsonValue)
   }
 
+  /**
+   * The fields the person set. Before SETTINGS_VERSION every save wrote the whole object, including
+   * `moveOnDone: true` when that was only the default; such a value is dropped so the new default
+   * (off) applies. An explicit `false` is kept. The migration is written on the next save.
+   */
+  private async storedSettings(): Promise<Record<string, unknown>> {
+    const raw = await this.kv.get('prefs.settings')
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
+    const stored: Record<string, unknown> = {}
+    for (const key of Object.keys(DEFAULT_SETTINGS)) if (key in raw) stored[key] = (raw as Record<string, unknown>)[key]
+    if ((raw as Record<string, unknown>).version !== SETTINGS_VERSION && stored.moveOnDone === true) delete stored.moveOnDone
+    return stored
+  }
+
   /** Stored settings merged over the defaults; a missing or wrong-typed field reads as its default. */
   async settings(): Promise<PluginSettings> {
-    const raw = await this.kv.get('prefs.settings')
-    const stored: Record<string, unknown> = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}
+    const stored = await this.storedSettings()
     const d = DEFAULT_SETTINGS
     const str = (key: keyof PluginSettings, fallback: string): string => {
       const v = stored[key]
@@ -167,10 +188,10 @@ export class PrefsStore {
     }
   }
 
-  /** Merges an already validated patch and saves. Returns the new settings. */
+  /** Saves an already validated patch over the fields set before (not the defaults). Returns the new settings. */
   async updateSettings(patch: Partial<PluginSettings>): Promise<PluginSettings> {
-    const next: PluginSettings = { ...(await this.settings()), ...patch }
+    const next = { ...(await this.storedSettings()), ...patch, version: SETTINGS_VERSION }
     await this.kv.set('prefs.settings', next as unknown as JsonValue)
-    return next
+    return this.settings()
   }
 }

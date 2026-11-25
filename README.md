@@ -1,8 +1,8 @@
 # ClickUp Tasks for Orca (Overhedge fork)
 
-Your ClickUp tasks, from the Lists you choose, in Orca's right sidebar. Sign in with OAuth, start a
-task in its own worktree with your coding agent, and let the task's status follow the List's own
-workflow.
+Your ClickUp tasks, from the Lists you choose, in Orca's right sidebar and (with the Overhedge Orca
+build) as a ClickUp tab on Orca's Tasks page. Sign in with OAuth, start a task in its own worktree
+with your coding agent, and let the task's status follow the List's own workflow.
 
 Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks) (MIT), based on its
 `feature/start-task` branch after a full audit: see [SECURITY-AUDIT.md](SECURITY-AUDIT.md).
@@ -18,11 +18,14 @@ Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks
 - **Start in worktree**: Orca creates a worktree and branch named after the task (the Custom Task ID
   when the Workspace uses them, e.g. `OVH-142-fix-login`, else `CU-<id>-<title>`) on this computer or
   on a paired Orca server, and starts your agent there with the task as its first prompt.
-- **Status follows the List**: on start the task moves to the List's in-progress status; when the
-  agent first finishes it moves to the List's review status. Defaults come from ClickUp's status
-  types; each List can override them or say "don't change". When no status fits, nothing changes
-  and the run card says why. A comment with the branch and agent is posted on start and finish
-  (can be turned off).
+- **Status follows the List**: on start the task moves to the List's in-progress status. Moving it to
+  the List's review status when the agent first finishes is a setting, **off by default** since 0.3.0
+  (agents set their own review status); turn it on in Settings if you want it. Defaults come from
+  ClickUp's status types; each List can override them or say "don't change". When no status fits,
+  nothing changes and the run card says why. A comment with the branch and agent is posted on start
+  (and on finish when that move is on); it can be turned off.
+- **Tasks page tab** (Overhedge Orca build only): the same tasks, search, filters, status menu and
+  Start, on Orca's own Tasks page. See [Orca's Tasks page](#orcas-tasks-page-overhedge-build).
 
 ## Install (Orca desktop app)
 
@@ -39,6 +42,10 @@ The plugin installs as `ferbiy.clickup-tasks`. A commit-pinned install never upd
 installs. To move to a newer version, install the newer commit the same way. We also recommend
 turning off **Settings › Plugins › Update plugins automatically** (`pluginUpdatePolicy: "manual"`)
 so no catalog plugin updates silently. A plugin cannot change that setting itself.
+
+**From 0.2.0:** "Move to review when the agent first finishes" is now off by default. 0.2.0 saved
+every setting whenever any one changed, so a saved "on" that was only the old default reads as off
+after the update; an explicit "off" stays off. Turn it on again in Settings if you want it.
 
 If the upstream `gthjnk.clickup-tasks` is installed, uninstall it first (`orca plugin uninstall
 gthjnk.clickup-tasks`) so there is one ClickUp panel.
@@ -108,19 +115,54 @@ It has no hooks and no settings capability. Only its worker talks to the network
   random per-prompt fence; the title, description, checklists, fields, attachments and comments are
   inside it, marked as data, not instructions. Task text still goes to your model provider with the
   prompt, as for Jira or Linear in Orca.
-- ClickUp changes only through what you start or edit: a status move and comment at start, and
-  (setting, on by default) a status move and comment the first time the agent finishes, only while
-  the task still shows the status the start set.
+- ClickUp changes only through what you start or edit (in the panel or on the Tasks page): a status
+  move and comment at start, and (setting, off by default) a status move and comment the first time
+  the agent finishes, only while the task still shows the status the start set.
 - ClickUp allows 100 requests a minute per token on Free, Unlimited and Business plans. The worker
-  keeps itself under 80 a minute, caches lists, statuses and the hierarchy, and stops after a 429
-  until ClickUp's reset time. Nothing polls in the background.
+  keeps itself under 80 a minute for the panel and the Tasks page together, caches lists, statuses
+  and the hierarchy, and stops after a 429 until ClickUp's reset time. The plugin itself polls
+  nothing; the Tasks page asks for its list every two minutes while it is open (see below).
+
+## Orca's Tasks page (Overhedge build)
+
+Needs the Overhedge Orca build that contains plugin task sources (fork branch
+`overhedge/task-sources`, from 97de206 on; `OVERHEDGE.md` › "Plugin task sources"). The plugin
+declares three worker commands, `taskSource.clickup.list`, `.get` and `.action`; that build turns
+them into a **ClickUp** tab on the Tasks page next to GitHub, GitLab, Linear and Jira. On stock Orca
+they are ordinary command palette entries ("ClickUp tasks", "ClickUp tasks: task details / task
+action (used by the Tasks page)"): running one from the palette sends no ClickUp request and does
+nothing useful, and the panel works as before. No new permission is needed.
+
+- **List**: only tasks of the Lists chosen in Settings › Lists (nothing before you choose; a notice
+  says so, or asks you to sign in in the panel first). Filters: **List** (all chosen Lists or one,
+  shown as `Folder › List`), **Assignee** (me, the default, or anyone), **Status** (the chosen
+  List's real statuses; with all Lists, the statuses already cached), **Closed** (hidden by
+  default). Search matches the title, Custom Task ID, task id and List name. **Load more** pages on.
+- **Detail**: title with the Custom Task ID, status, priority, assignees, tags, and a body with the
+  location, due date, the description (ClickUp's markdown, untrusted: shown through Orca's sanitizing
+  markdown view, as in the panel), checklists, subtasks and the Orca runs started for the task.
+- **Actions**: **Status ▾** (the List's statuses; moves the task and refreshes the panel's row),
+  **Start <agent> ▾** (your git projects on every host, the one last used for that List first). Start
+  is the panel's Start flow with your Settings defaults (agent, base branch, move to in progress,
+  task context): a worktree and branch named after the Custom Task ID as the team writes it
+  (`OVH-142-<slug>`, else `CU-<id>-<slug>`), the agent with the fenced task prompt, the status move
+  and comment; the run then shows on the panel's card as usual. **Open in browser** is the Tasks
+  page's own button for the task's ClickUp link.
+- **Requests**: "mine, not closed" views (the default) come from the panel's My tasks cache, fetched
+  again only when older than a minute; other views ask ClickUp for one page of 100 at a time and
+  reuse it for a minute (ClickUp has no text search, so a search there reads up to five pages per
+  answer). The page asks again every two minutes while open, so an open Tasks page costs about one
+  My tasks fetch (one request per 100 tasks per 40 Lists) every two minutes. Opening a task costs one
+  request; a status move two.
 
 ## Limitations
 
-- Not on Orca's Tasks page (no plugin task-source extension point yet).
+- The Tasks page tab needs the Overhedge Orca build (above); stock Orca has no plugin task-source
+  extension point yet (upstream PR #26282 is open).
 - If Orca loses the agent's first prompt, the run card shows it for you to paste; the plugin no longer
   retries by typing into the terminal.
-- Not included: creating top-level tasks, time tracking, several accounts at once.
+- Not included: creating top-level tasks, time tracking, several accounts at once. The Tasks page
+  has no comments, editing or per-start choices (agent, base branch): use the panel for those.
 
 ## Development
 

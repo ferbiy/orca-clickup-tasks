@@ -94,7 +94,7 @@ export const checkSettings: SettingsState = {
     defaultAgent: 'claude',
     moveToInProgress: true,
     commentOnStart: true,
-    moveOnDone: true,
+    moveOnDone: false,
     defaultBaseBranch: '',
     notifyOnDone: true,
     notifyOnNeedsInput: false,

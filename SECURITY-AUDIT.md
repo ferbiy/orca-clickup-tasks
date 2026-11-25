@@ -60,3 +60,24 @@ fork fixes both and drops the access they needed. Safe to base on, with the chan
 `notifications:show` (each explained in the README). Residual risks: task text still reaches the
 agent and the model provider (fenced, scoped); a ClickUp token has no scopes (OAuth tokens act as
 the user in the Workspaces they authorized); ClickUp offers no token-revoke API.
+
+## Re-check for 0.3.0: Tasks page source (2026-11-25)
+
+Scope: `src/worker/task-source/` (`items.ts`, `task-source-service.ts`, `register.ts`),
+`TaskTracker.queryTasks` (`src/clickup/clickup-tracker.ts`), `TaskService.queryTasks` /
+`cachedStatuses`, `ScopeService.lists`, `StartService.projects` (was private), the manifest's
+`contributes.commands`, and the settings change in `prefs-store.ts`. Same criteria as above.
+
+| Area | Finding | Risk |
+|---|---|---|
+| Capabilities | None added. The commands need no capability (`commands.register`); everything they do goes through the services the panel already uses. `orca plugin validate` shows the same access list. | None |
+| Network | No new destination. The one new request is `GET /team/{id}/task` with `list_ids[]` (chosen Lists only, never empty: no ids, no request), optional `assignees[]`, `statuses[]`, `include_closed`, `page`, through the same `ClickUpHttp` and the shared 80/minute gate. | None |
+| Scope | List ids from the page's filters are intersected with the scope before the query, and every returned task outside it is dropped (`TaskService.queryTasks`); `get`/`action` go through `TaskService.get`, which refuses an out-of-scope task before it is cached or shown. Item ids must match `[A-Za-z0-9_-]{1,64}` before any request. | None |
+| Untrusted text | Task titles, names and tags go to the Orca renderer as plain strings (it renders them as text); in the detail body they are markdown-escaped. The description is passed as markdown (capped at 100 000 characters) and the Overhedge renderer shows it through `CommentMarkdown` (rehype-sanitize), the counterpart of the panel's `Markdown`. Item links are only `https://app.clickup.com/...`, else rebuilt from the id. The agent prompt is the existing fenced one (`StartService.run`). | Low (same as the panel) |
+| Writes | `set-status` only to a status of the task's own List (checked against `listStatuses`); `start` only into a visible git project from `project.list`, with the person's saved settings. Both are explicit menu picks on the Tasks page; nothing changes in the background. | Low |
+| Command palette | On stock Orca the three commands appear in the palette. Without the page's arguments, `list` answers an empty list with a hint and sends nothing; `get`/`action` refuse. | None |
+| Errors | The renderer shows the plugin's message; messages are the services' own texts. A refused token clears it as the panel does (`AuthService.invalidate`). No token, header or secret is in any answer or log line. | None |
+| Settings | `moveOnDone` now defaults to off; only explicitly set fields are stored, so a future default change reaches everyone who never touched it. A 0.2.0 `moveOnDone: true` (written as the old default) reads as unset. | None (fewer automatic writes) |
+
+Verdict: no new access, no new network destination, scope enforced on every path. Tests: 370 pass
+(`orca plugin test`), `tsc --noEmit` clean, `orca plugin validate` / `check` ok.

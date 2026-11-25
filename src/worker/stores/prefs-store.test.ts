@@ -7,7 +7,7 @@ describe('PrefsStore', () => {
     const kv = new MemoryKeyValueStore()
     const p = new PrefsStore(kv)
     assert.deepEqual(await p.settings(), {
-      defaultAgent: 'claude', moveToInProgress: true, commentOnStart: true, moveOnDone: true, defaultBaseBranch: '',
+      defaultAgent: 'claude', moveToInProgress: true, commentOnStart: true, moveOnDone: false, defaultBaseBranch: '',
       notifyOnDone: true, notifyOnNeedsInput: false, taskContext: 'link-and-snapshot'
     })
     const next = await p.updateSettings({ defaultAgent: 'codex', notifyOnNeedsInput: true })
@@ -94,11 +94,45 @@ describe('PrefsStore: task context, scope and status overrides', () => {
     assert.equal((await p.settings()).taskContext, 'link-and-snapshot')
   })
 
-  test('commentOnStart and moveOnDone default on', async () => {
+  test('commentOnStart defaults on, moveOnDone off', async () => {
     const p = new PrefsStore(new MemoryKeyValueStore())
     const s = await p.settings()
     assert.equal(s.commentOnStart, true)
-    assert.equal(s.moveOnDone, true)
+    assert.equal(s.moveOnDone, false)
+  })
+
+  test('only the fields the person set are stored, so a later default change reaches the rest', async () => {
+    const kv = new MemoryKeyValueStore()
+    const p = new PrefsStore(kv)
+    await p.updateSettings({ notifyOnDone: false })
+    assert.deepEqual(await kv.get('prefs.settings'), { notifyOnDone: false, version: 2 })
+    await p.updateSettings({ moveOnDone: true })
+    assert.equal((await new PrefsStore(kv).settings()).moveOnDone, true)
+    await p.updateSettings({ moveOnDone: false })
+    assert.equal((await p.settings()).moveOnDone, false)
+  })
+
+  test('0.2.0 settings: a saved moveOnDone true (the old default) reads as off, an explicit false stays', async () => {
+    const kv = new MemoryKeyValueStore()
+    const p = new PrefsStore(kv)
+    const old = {
+      defaultAgent: 'codex', moveToInProgress: true, commentOnStart: false, moveOnDone: true, defaultBaseBranch: '',
+      notifyOnDone: true, notifyOnNeedsInput: false, taskContext: 'link-and-snapshot'
+    }
+    await kv.set('prefs.settings', old)
+    const s = await p.settings()
+    assert.equal(s.moveOnDone, false)
+    assert.equal(s.defaultAgent, 'codex')
+    assert.equal(s.commentOnStart, false)
+    await p.updateSettings({ notifyOnNeedsInput: true })
+    const saved = (await kv.get('prefs.settings')) as Record<string, unknown>
+    assert.equal(saved.version, 2)
+    assert.equal('moveOnDone' in saved, false)
+    await kv.set('prefs.settings', { ...old, moveOnDone: false })
+    assert.equal((await p.settings()).moveOnDone, false)
+    // Turned on again after the migration: a versioned true is a choice and stays.
+    await p.updateSettings({ moveOnDone: true })
+    assert.equal((await p.settings()).moveOnDone, true)
   })
 
   test('scope is per Workspace and empty without one', async () => {

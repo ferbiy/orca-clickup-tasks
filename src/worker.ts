@@ -15,6 +15,8 @@ import { ScopeService } from './worker/services/scope-service'
 import { agentLabel, StartService } from './worker/services/start-service'
 import { TaskService } from './worker/services/task-service'
 import { TransitionService } from './worker/services/transition-service'
+import { registerTaskSource } from './worker/task-source/register'
+import { TaskSourceService } from './worker/task-source/task-source-service'
 import { CacheStore } from './worker/stores/cache-store'
 import { LinkStore } from './worker/stores/link-store'
 import { PrefsStore } from './worker/stores/prefs-store'
@@ -87,6 +89,10 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
 
   registerHandlers(orca, { auth, oauth, scope, transitions, tasks, edit, clipboard: systemClipboard(), start, watcher, links, prefs, clock, post, log })
+
+  // Orca's Tasks page (Overhedge build): same services, caches and request budget as the panel.
+  const source = new TaskSourceService({ auth, tasks, scope, start, prefs, links, clock, agentLabel })
+  registerTaskSource(orca, { source, onAuthInvalid: () => auth.invalidate(), log })
 
   orca.events.on('agent.status.changed', (event) => watcher.onAgentStatus(event))
   orca.events.on('workspace.removed', (event) => watcher.onWorkspaceRemoved(event))

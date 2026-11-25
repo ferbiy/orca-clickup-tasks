@@ -331,7 +331,8 @@ export interface PluginSettings {
   commentOnStart: boolean
   /**
    * When the agent first finishes, move the task to the List's "done" status (review, by type or
-   * override) and comment, but only while the task is still in the status the start set. Default true.
+   * override) and comment, but only while the task is still in the status the start set. Default false (agents
+   * usually set their own review status).
    */
   moveOnDone: boolean
   /** Base branch the Start form starts with; '' = the project's default. Trimmed, max 200 chars. Default ''. */

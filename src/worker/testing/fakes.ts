@@ -80,6 +80,15 @@ export class FakeTracker implements TaskTracker {
     this.record('listMyTasks', [teamId, userId, [...options.listIds]])
     return this.tasks
   }
+  /** queryTasks answers, by page; a missing page answers an empty last page. */
+  queryPages: { tasks: TaskSummary[]; lastPage: boolean }[] = [{ tasks: [taskDetail()], lastPage: true }]
+  async queryTasks(
+    teamId: string,
+    options: { listIds: readonly string[]; assigneeId?: string; includeClosed: boolean; statuses?: readonly string[]; page: number }
+  ) {
+    this.record('queryTasks', [teamId, { ...options, listIds: [...options.listIds] }])
+    return this.queryPages[options.page] ?? { tasks: [], lastPage: true }
+  }
   async getTask(taskId: string) { this.record('getTask', [taskId]); return this.detail }
   async listStatuses(listId: string) { this.record('listStatuses', [listId]); return this.statuses }
   async setStatus(taskId: string, status: string) { this.record('setStatus', [taskId, status]) }

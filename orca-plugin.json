@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "clickup-tasks",
   "name": "ClickUp Tasks (Overhedge)",
-  "version": "0.2.0",
-  "description": "Your ClickUp tasks from the Lists you choose, in Orca's sidebar: sign in with OAuth, start a task in its own worktree with your coding agent, and move its status by the List's own workflow.",
+  "version": "0.3.0",
+  "description": "Your ClickUp tasks from the Lists you choose, in Orca's sidebar and (Overhedge build) its Tasks page: sign in with OAuth, start a task in its own worktree with your coding agent, and move its status by the List's own workflow.",
   "author": {
     "name": "Overhedge (fork of gthjnk/orca-clickup-tasks)",
     "url": "https://github.com/ferbiy"
@@ -31,6 +31,11 @@
         "entry": "src/panel.tsx",
         "ui": "components"
       }
+    ],
+    "commands": [
+      { "id": "taskSource.clickup.list", "title": "ClickUp tasks" },
+      { "id": "taskSource.clickup.get", "title": "ClickUp tasks: task details (used by the Tasks page)" },
+      { "id": "taskSource.clickup.action", "title": "ClickUp tasks: task action (used by the Tasks page)" }
     ],
     "events": [
       { "on": "agent.status.changed" },

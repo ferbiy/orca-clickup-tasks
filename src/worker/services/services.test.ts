@@ -550,6 +550,8 @@ describe('ScopeService (Lists Orca may see)', () => {
 describe('TransitionService (agent done)', () => {
   async function started(w: ReturnType<typeof world>) {
     await connected(w)
+    // Off by default since 0.3.0; these tests cover the move when the person turned it on.
+    await w.prefs.updateSettings({ moveOnDone: true })
     const linked = await w.start.run({ taskId: '86c1x2a', projectId: 'p-api', agent: 'claude', moveToInProgress: true })
     // ClickUp now shows the status the start set.
     w.tracker.detail = taskDetail({ status: { name: 'in progress', type: 'custom' } })

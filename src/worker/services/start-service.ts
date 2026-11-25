@@ -53,7 +53,7 @@ export class StartService {
     // The panel opens a task with tasks.get and start.options together: reuse that fetch.
     const task = await this.deps.tasks.get(taskId, { reuse: true })
     const [projects, start, remembered, settings] = await Promise.all([
-      this.gitProjects(),
+      this.projects(),
       this.deps.transitions.resolve(task.list.id, 'start'),
       this.deps.prefs.projectForList(task.list.id),
       this.deps.prefs.settings()
@@ -78,7 +78,7 @@ export class StartService {
     if (!AGENTS.some((a) => a.id === request.agent)) {
       throw new PluginError('invalid_input', `Unknown agent "${request.agent}".`)
     }
-    const project = (await this.gitProjects()).find(
+    const project = (await this.projects()).find(
       (p) => p.id === request.projectId && (request.hostId === undefined || p.hostId === request.hostId)
     )
     if (!project) throw new PluginError('not_found', 'That project is no longer in Orca.')
@@ -157,7 +157,7 @@ export class StartService {
   }
 
   /** Git projects Orca shows, on this computer or a paired server / SSH host. */
-  private async gitProjects(): Promise<ProjectOption[]> {
+  async projects(): Promise<ProjectOption[]> {
     const projects = await this.deps.gateway.listProjects()
     return projects
       .filter((p) => p.kind === 'git' && !p.hidden)

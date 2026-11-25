@@ -62,6 +62,31 @@ export class ScopeService {
     return ids
   }
 
+  /**
+   * The Lists in scope with their names and Folder (null for a folderless List), for pickers. Reads
+   * the same cached Space contents as listIds, plus the Spaces of individually chosen Lists.
+   */
+  async lists(): Promise<{ id: string; name: string; folder: string | null }[]> {
+    const scope = await this.get()
+    const ids = await this.listIds()
+    const spaces = new Set([...scope.spaces, ...scope.folders.map((f) => f.spaceId), ...scope.lists.map((l) => l.spaceId)])
+    const out: { id: string; name: string; folder: string | null }[] = []
+    const seen = new Set<string>()
+    const add = (id: string, name: string, folder: string | null) => {
+      if (!ids.has(id) || seen.has(id)) return
+      seen.add(id)
+      out.push({ id, name, folder })
+    }
+    for (const spaceId of spaces) {
+      const children = await this.deps.childrenOf(spaceId)
+      for (const folder of children.folders) for (const list of folder.lists) add(list.id, list.name, folder.name)
+      for (const list of children.lists) add(list.id, list.name, null)
+    }
+    // A chosen List ClickUp no longer shows in its Space (moved, hidden): still in scope, unnamed.
+    for (const id of ids) add(id, `List ${id}`, null)
+    return out
+  }
+
   /** Refuses a List outside the chosen ones. */
   async assertList(listId: string): Promise<void> {
     if (!(await this.listIds()).has(listId)) {

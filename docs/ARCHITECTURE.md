@@ -21,6 +21,16 @@ The sections below are the upstream design of `feature/start-task`. This fork ch
   the "auto" task-context mode. `RunWatcher.check` uses `agents.list` only; 'failed' is gone
   ('stalled' with `no_agent` / `agent_idle`).
 - **Rate limit**: `createRateGate` in `clickup/http.ts` (80 requests/minute, blocks after a 429).
+- **Tasks page (0.3.0)**: `worker/task-source/` registers `taskSource.clickup.list|get|action` worker
+  commands (the Overhedge Orca build's plugin task-source contract, `OVERHEDGE.md` there).
+  `TaskSourceService` sits on `TaskService` (My tasks cache, scope checks, one rate gate),
+  `ScopeService.lists()` (names for the List filter), `StartService.run` and `projects()`;
+  `TaskService.queryTasks` / `TaskTracker.queryTasks` add the Workspace task query for views other
+  than "mine, not closed" (one page per call, memoized a minute). `items.ts` maps to the contract's
+  shapes and clamps to its limits.
+- **Settings**: `prefs.settings` stores only fields the person set plus `version: 2`; `moveOnDone`
+  defaults to false and a pre-version `true` (the old default, saved by 0.2.0's whole-object writes)
+  reads as unset.
 
 Orca 1.4.266, host API 1.10, `engines.orca >=1.4.259`.
 
@@ -276,9 +286,9 @@ cache. Nothing is sent before the person presses **Update task**.
 - **Another tracker** (Linear-like or self-hosted): add `src/<tracker>/` implementing `TaskTracker`
   and swap the factory in `worker.ts`. Services, stores, panel and prompt stay as they are. There is
   no multi-tracker registry until a second tracker exists.
-- **Orca task sources** (when #26281 ships): add a thin adapter that exposes `TaskService` and
-  `StartService` through the new contribution point. Its format is undefined, so nothing is designed
-  for it now. The ClickUp code is already free of UI.
+- **Orca task sources**: done for the Overhedge build's command-based contract
+  (`worker/task-source/`). When upstream ships `contributes.taskSources` (#26281/#26282, same data
+  shapes), only the registration changes.
 - **Settings**: a branch prefix, a description cap and a refresh window would go in
   `contributes.settings` (+`settings:own`), read by the services through a new `SettingsPort`.
 - **Status bar / time tracking**: new services beside the existing ones, fed by the same stores.

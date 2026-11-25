@@ -100,6 +100,39 @@ describe('createClickUpTracker', () => {
     assert.equal(two.calls.length, 2)
   })
 
+  test('queryTasks sends list_ids[], assignees[] and statuses[] only when given, one page', async () => {
+    const { tracker, calls } = setup([{ status: 200, body: taskPage([TASK_FULL], false) }])
+    const page = await tracker.queryTasks('9001234', { listIds: ['L1'], includeClosed: false, page: 2 })
+    assert.equal(page.tasks.length, 1)
+    assert.equal(page.lastPage, true)
+    assert.equal(calls[0].url, `${BASE}/team/9001234/task?list_ids[]=L1&include_closed=false&subtasks=true&page=2`)
+    const mine = setup([{ status: 200, body: taskPage(manyTasks(100, 'x'), false) }])
+    const full = await mine.tracker.queryTasks('1', {
+      listIds: ['L1', 'L2'],
+      assigneeId: '183',
+      statuses: ['in review'],
+      includeClosed: true,
+      page: 0
+    })
+    assert.equal(full.lastPage, false)
+    assert.equal(
+      mine.calls[0].url,
+      `${BASE}/team/1/task?list_ids[]=L1&list_ids[]=L2&assignees[]=183&statuses[]=in%20review&include_closed=true&subtasks=true&page=0`
+    )
+  })
+
+  test('queryTasks without Lists sends nothing; more than 40 ids is refused', async () => {
+    const none = setup([])
+    assert.deepEqual(await none.tracker.queryTasks('1', { listIds: [], includeClosed: false, page: 0 }), { tasks: [], lastPage: true })
+    assert.equal(none.calls.length, 0)
+    const many = setup([])
+    await assert.rejects(
+      many.tracker.queryTasks('1', { listIds: Array.from({ length: 41 }, (_, i) => `L${i}`), includeClosed: false, page: 0 }),
+      (e: unknown) => e instanceof PluginError && e.code === 'invalid_input'
+    )
+    assert.equal(many.calls.length, 0)
+  })
+
   test('getTask asks for markdown description and subtasks', async () => {
     const { tracker, calls } = setup([{ status: 200, body: TASK_DETAIL }])
     const detail = await tracker.getTask('86c1x2a')
