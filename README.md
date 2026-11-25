@@ -43,7 +43,7 @@ Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks
   prepared message with the task link into an Orca chat that is already open (on this computer or
   the paired server) and let that chat take it from there. See [Send to chat](#send-to-chat-overhedge-build).
 - **Tasks page tab** (Overhedge Orca build only): the same tasks, search, filters, status menu and
-  Start, on Orca's own Tasks page. See [Orca's Tasks page](#orcas-tasks-page-overhedge-build).
+  Start, on Orca's own Tasks page, as a list or (0.5.0+) a Kanban board by status. See [Orca's Tasks page](#orcas-tasks-page-overhedge-build).
 - **Status colours** (0.4.1): every status shows its ClickUp colour: group titles, the status badge,
   the status menus, subtasks, the Start form, the run card, and on the Tasks page the status pill,
   Status menu and Status filter. On the Overhedge Orca build (0.4.2+ of the plugin) the status badge,
@@ -204,6 +204,9 @@ they are ordinary command palette entries ("ClickUp tasks", "ClickUp tasks: task
 action (used by the Tasks page)"): running one from the palette sends no ClickUp request and does
 nothing useful, and the panel works as before. No new permission is needed.
 
+- **List or Board**: on an Orca build with the plugin task board (fork branch
+  `overhedge/task-board`; `OVERHEDGE.md` › "Plugin task board") the tab has a **List / Board**
+  switch, remembered per tab. See [Board](#board-overhedge-build).
 - **List**: only tasks of the Lists chosen in Settings › Lists (nothing before you choose; a notice
   says so, or asks you to sign in in the panel first). Filters: **List** (all chosen Lists or one,
   shown as `Folder › List`), **Assignee** (me, the default, or anyone), **Status** (the chosen
@@ -227,6 +230,35 @@ nothing useful, and the panel works as before. No new permission is needed.
   My tasks fetch (one request per 100 tasks per 40 Lists) every two minutes. Opening a task costs one
   request; a status move two.
 
+## Board (Overhedge build)
+
+<p align="center">
+  <img src="docs/images/tasks-board-clickup.svg" alt="Mockup of Orca's Tasks page with the ClickUp tab in Board view: status columns to do, in progress, in review and complete in ClickUp's colours, task cards with id, title, priority and assignee, and a card being dragged from in progress to in review" />
+  <br /><sub>Board view (placeholder data).</sub>
+</p>
+
+Needs plugin 0.5.0+ and an Overhedge Orca build with the plugin task board. The plugin sees the
+build's `features: ["board"]` and adds the status columns to its list answer; other builds keep the
+list only. The board shows the same tasks as the list, with the same filters and search.
+
+- **Columns** are statuses in the List's workflow order, coloured like ClickUp's, every status of
+  the List even when empty (so you can drop on it), closed ones last. With **All chosen Lists**,
+  statuses of different Lists are merged by name (any case) into one column, as ClickUp's own board
+  does over a Space or Folder: ClickUp's groups (open, not started, active, done, closed) in that
+  order, then each status's earliest position; the first List's spelling and colour win. A
+  status's own List decides whether a task can move there: dropping a task on a column its List
+  doesn't have is refused (ClickUp's message) and the card goes back.
+- **Cards** show the task id, title (with the Custom Task ID), priority and assignees. A click opens
+  the same detail (actions, Status, Start, Send to chat) beside the board.
+- **Moving**: drag a card to another column, or use the card's Move menu. The card moves at once;
+  the plugin runs the detail's Status action (same checks: only a status of the task's List), and
+  if ClickUp refuses, the card goes back with the reason.
+- **Requests**: the board is the list's answer, so it costs the same as the list. With All chosen
+  Lists, the plugin also reads the statuses of up to five Lists per answer whose tasks are on screen
+  and whose statuses are not cached yet (cached for an hour). **Load more** at the bottom of a
+  column asks for more of that status only (one page, one request, or none from the My tasks
+  cache). A closed column stays empty while closed tasks are hidden; it is there to drop on.
+
 ## Status colours
 
 ClickUp gives every status a colour (`#rrggbb`) on tasks and in a List's statuses. The plugin keeps a
@@ -242,7 +274,7 @@ palette colour keeps 3:1 contrast on Orca's light and dark backgrounds.
   the name, as does everything on stock Orca, which has no colour prop. Colour emoji look the same
   in light and dark themes, and the name stays as text, so nothing gets harder to read.
 - **Tasks page**: each item, Status menu option and Status filter option carries `color` (the checked
-  hex). The Overhedge build sends `features: ["status-color"]` with its commands and draws `color`
+  hex), and board columns carry it too. The Overhedge build sends `features: ["status-color"]` with its commands and draws `color`
   itself (a tinted status pill and coloured dots), so the plugin sends plain labels. A build without
   that feature gets the circle in the label instead.
 

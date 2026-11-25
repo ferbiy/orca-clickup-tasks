@@ -17,6 +17,19 @@ export type ItemTone = 'open' | 'active' | 'blocked' | 'review' | 'done' | 'clos
  */
 export const STATUS_COLOR_FEATURE = 'status-color'
 
+/**
+ * The host feature a Tasks page advertises when it draws a Kanban board (Overhedge build): list
+ * answers then carry `board` (the status columns and the move action), and `column` asks for more
+ * of one column. Without it nothing changes.
+ */
+export const BOARD_FEATURE = 'board'
+
+/** The detail's status menu; also the board's move action, so a drop takes the same checked path. */
+export const SET_STATUS_ACTION = 'set-status'
+
+/** Board columns at most (the Overhedge schema's limit). */
+export const BOARD_COLUMN_LIMIT = 50
+
 /** How statuses are written for the host that asked. */
 export interface StatusStyle {
   /** True when the host draws `color` (STATUS_COLOR_FEATURE): labels stay plain names. */
@@ -28,8 +41,11 @@ export const DOT_LABELS: StatusStyle = { hostDrawsColor: false }
 export interface SourceItem {
   id: string
   title: string
-  /** `color`: checked lower-case `#rrggbb` (ClickUp's, else the pinned fallback). */
-  status?: { label: string; tone: ItemTone; color: string }
+  /**
+   * `color`: checked lower-case `#rrggbb` (ClickUp's, else the pinned fallback). `value`: the
+   * status name, i.e. the board column the task sits in (a host without a board drops it).
+   */
+  status?: { label: string; tone: ItemTone; color: string; value?: string }
   priority?: string
   owner?: string
   labels?: string[]
@@ -64,6 +80,19 @@ export interface SourceDetail {
   item: SourceItem
   bodyMarkdown?: string
   actions?: SourceAction[]
+}
+
+/** One board column: a status. `value` is its name, what the move action takes. */
+export interface BoardColumn {
+  value: string
+  label: string
+  tone: ItemTone
+  color: string
+}
+
+export interface SourceBoard {
+  columns: BoardColumn[]
+  moveActionId: string
 }
 
 /** Longest description put into the detail body (the schema allows 512 KiB). */
@@ -120,14 +149,33 @@ export function taskRef(task: { id: string; customId: string | null }): string {
   return task.customId || `CU-${task.id}`
 }
 
+/** Assignee names as one line, or null when none. */
+function ownerText(task: TaskSummary): string | null {
+  const names = (task.assignees ?? []).map((a) => a.name).filter((n) => n !== '')
+  return names.length > 0 ? clamp(names.join(', '), 256) : null
+}
+
+/** A status name usable as a column value (the schema's 1..256), else null. */
+function columnValue(name: string): string | null {
+  return name !== '' && name.length <= 256 ? name : null
+}
+
 export function toItem(task: TaskSummary, style: StatusStyle = DOT_LABELS): SourceItem {
   const priority = priorityLabel(task.priority)
   const title = task.customId ? `${task.customId} ${task.name}` : task.name
+  const owner = ownerText(task)
+  const value = columnValue(task.status.name)
   return {
     id: task.id,
     title: clamp(title.trim() || task.id, 512),
-    status: { label: statusText(task.status, 64, style), tone: statusTone(task.status), color: statusColor(task.status) },
+    status: {
+      label: statusText(task.status, 64, style),
+      tone: statusTone(task.status),
+      color: statusColor(task.status),
+      ...(value !== null ? { value } : {})
+    },
     ...(priority ? { priority } : {}),
+    ...(owner ? { owner } : {}),
     ...(task.updatedAt > 0 ? { updatedAt: new Date(task.updatedAt).toISOString() } : {}),
     ...(task.location ? { summary: clamp(task.location, 1024) } : {}),
     url: taskUrl(task)
@@ -135,13 +183,52 @@ export function toItem(task: TaskSummary, style: StatusStyle = DOT_LABELS): Sour
 }
 
 export function toDetailItem(task: TaskDetail, style: StatusStyle = DOT_LABELS): SourceItem {
-  const owners = task.assignees.map((a) => a.name).filter((n) => n !== '')
   const labels = task.tags.map((t) => clamp(t, 64)).filter((t) => t !== '').slice(0, 16)
   return {
     ...toItem(task, style),
-    ...(owners.length > 0 ? { owner: clamp(owners.join(', '), 256) } : {}),
     ...(labels.length > 0 ? { labels } : {})
   }
+}
+
+const TYPE_ORDER: Record<StatusOption['type'], number> = { open: 0, unstarted: 1, custom: 2, done: 3, closed: 4 }
+
+/** Statuses in board order: ClickUp's groups (open, not started, active, done, closed), then the List's order, then name. */
+export function sortStatuses(statuses: readonly StatusOption[]): StatusOption[] {
+  return [...statuses].sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || a.order - b.order || a.name.localeCompare(b.name))
+}
+
+/**
+ * One status per name (any case) across Lists, like ClickUp's own board over several Lists: the
+ * first List's spelling, group and colour win, and its lowest position across the Lists counts.
+ */
+export function mergeStatuses(lists: readonly (readonly StatusOption[])[]): StatusOption[] {
+  const byName = new Map<string, StatusOption>()
+  for (const statuses of lists) {
+    for (const s of statuses) {
+      const key = s.name.toLowerCase()
+      const known = byName.get(key)
+      if (!known) byName.set(key, s)
+      else if (s.order < known.order) byName.set(key, { ...known, order: s.order })
+    }
+  }
+  return [...byName.values()]
+}
+
+/** The board for these statuses (already merged), in board order; the move action is the Status menu's. */
+export function boardOf(statuses: readonly StatusOption[]): SourceBoard | null {
+  const columns = sortStatuses(statuses)
+    .filter((s) => columnValue(s.name) !== null)
+    .slice(0, BOARD_COLUMN_LIMIT)
+    .map((s) => ({ value: s.name, label: clamp(s.name, 64), tone: statusTone(s), color: statusColor(s) }))
+  return columns.length > 0 ? { columns, moveActionId: SET_STATUS_ACTION } : null
+}
+
+/** An item's `status.value` spelled like its board column ("Review" in one List, "review" in another). */
+export function alignToBoard(item: SourceItem, board: SourceBoard): SourceItem {
+  const value = item.status?.value
+  if (!item.status || value === undefined) return item
+  const column = board.columns.find((c) => c.value.toLowerCase() === value.toLowerCase())
+  return column && column.value !== value ? { ...item, status: { ...item.status, value: column.value } } : item
 }
 
 /** Markdown-escapes one line of ClickUp text shown outside the description (names, tags). */
@@ -229,7 +316,7 @@ export function detailActions(input: {
   if (statuses.length > 0) {
     const current = statuses.find((s) => s.name.toLowerCase() === input.task.status.name.toLowerCase())
     actions.push({
-      id: 'set-status',
+      id: SET_STATUS_ACTION,
       label: 'Status',
       ...(current ? { value: current.name } : {}),
       options: statuses.map((s) => statusOption(s, input.style ?? DOT_LABELS))

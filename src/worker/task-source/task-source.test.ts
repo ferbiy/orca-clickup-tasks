@@ -11,9 +11,10 @@ import { LinkStore } from '../stores/link-store'
 import { PrefsStore } from '../stores/prefs-store'
 import { FakeGateway, FakeTracker, manualClock, MemorySecrets, recordingPoster, taskDetail } from '../testing/fakes'
 import { MemoryKeyValueStore } from '../testing/memory-kv'
-import { clamp, detailActions, detailMarkdown, inline, projectValue, statusTone, statusText, toItem } from './items'
-import { failureMessage, parseListParams, parseStyle, registerTaskSource } from './register'
-import { PAGE_REUSE_MS, TaskSourceService } from './task-source-service'
+import { STATUSES } from '../testing/fakes'
+import { clamp, detailActions, detailMarkdown, inline, mergeStatuses, projectValue, statusTone, statusText, toItem } from './items'
+import { failureMessage, parseBoard, parseListParams, parseStyle, registerTaskSource } from './register'
+import { BOARD_STATUS_FETCHES, PAGE_REUSE_MS, TaskSourceService } from './task-source-service'
 
 function world() {
   const kv = new MemoryKeyValueStore()
@@ -299,6 +300,128 @@ describe('TaskSourceService.get and actions', () => {
   })
 })
 
+// The Overhedge schema's board limits (pluginTaskBoardSchema), so a board passing here is drawn.
+function checkBoard(board: Awaited<ReturnType<TaskSourceService['list']>>['board']) {
+  assert.ok(board)
+  assert.match(board.moveActionId, KEBAB)
+  assert.ok(board.columns.length >= 1 && board.columns.length <= 50)
+  assert.equal(new Set(board.columns.map((c) => c.value)).size, board.columns.length)
+  for (const c of board.columns) {
+    str(c.value, 1, 256, 'column.value')
+    str(c.label, 1, 64, 'column.label')
+    assert.ok(TONES.includes(c.tone))
+    assert.match(c.color, /^#[0-9a-f]{6}$/)
+  }
+}
+
+const BOARD = { board: true, style: { hostDrawsColor: true } }
+
+describe('TaskSourceService board (Overhedge Tasks page, feature "board")', () => {
+  test('one List: its statuses as columns in workflow order; cards name their column and assignees', async () => {
+    const w = await connected()
+    w.tracker.tasks = [
+      taskDetail({ assignees: [{ id: 'u1', name: 'Linh N.', initials: 'LN' }, { id: 'u2', name: 'Sam', initials: 'S' }] }),
+      taskDetail({ id: 'x2', status: { name: 'Review', type: 'custom', color: null } })
+    ]
+    const answer = await w.source.list({ query: '', filters: { list: 'L1' }, ...BOARD })
+    checkList(answer)
+    checkBoard(answer.board)
+    assert.equal(answer.board?.moveActionId, 'set-status')
+    assert.deepEqual(answer.board?.columns.map((c) => [c.value, c.tone]), [
+      ['to do', 'open'], ['in progress', 'active'], ['review', 'review'], ['complete', 'closed']
+    ])
+    assert.equal(answer.board?.columns[0]?.color, '#d3d3d3')
+    assert.deepEqual(answer.items.map((i) => i.status?.value), ['to do', 'review'])
+    assert.equal(answer.items[0]?.owner, 'Linh N., Sam')
+    // Without the feature the answer is the plain list.
+    assert.equal((await w.source.list({ query: '', filters: { list: 'L1' } })).board, undefined)
+  })
+
+  test('all chosen Lists: statuses merged by name like ClickUp; only Lists on screen are read', async () => {
+    const w = await connected([{ id: 'L1', spaceId: 's1' }, { id: 'L2', spaceId: 's1' }])
+    w.tracker.statusesByList = {
+      L2: [
+        { name: 'Backlog', type: 'unstarted', order: 0, color: '#aaaaaa' },
+        { name: 'In Progress', type: 'custom', order: 1, color: '#ff0000' },
+        { name: 'QA', type: 'custom', order: 2, color: null },
+        { name: 'Done', type: 'closed', order: 3, color: null }
+      ]
+    }
+    w.tracker.tasks = [taskDetail()]
+    const onlyL1 = await w.source.list({ query: '', filters: {}, ...BOARD })
+    assert.deepEqual(w.tracker.calls.filter((c) => c.method === 'listStatuses').map((c) => c.args[0]), ['L1'])
+    assert.deepEqual(onlyL1.board?.columns.map((c) => c.value), ['to do', 'in progress', 'review', 'complete'])
+
+    w.clock.advance(PAGE_REUSE_MS + 1)
+    w.tracker.tasks = [taskDetail(), taskDetail({ id: 'x2', list: { id: 'L2', name: 'Inbox' }, status: { name: 'In Progress', type: 'custom', color: '#ff0000' } })]
+    const both = await w.source.list({ query: '', filters: {}, ...BOARD })
+    checkBoard(both.board)
+    assert.deepEqual(both.board?.columns.map((c) => c.value), ['to do', 'Backlog', 'in progress', 'QA', 'review', 'complete', 'Done'])
+    // The L2 task's "In Progress" sits in the merged "in progress" column (the first List's spelling).
+    assert.deepEqual(both.items.map((i) => i.status?.value), ['to do', 'in progress'])
+    assert.deepEqual(w.tracker.calls.filter((c) => c.method === 'listStatuses').map((c) => c.args[0]), ['L1', 'L2'])
+    // Cached for an hour: the next board answer reads no statuses.
+    await w.source.list({ query: '', filters: {}, ...BOARD })
+    assert.equal(w.tracker.count('listStatuses'), 2)
+    assert.ok(BOARD_STATUS_FETCHES >= 1)
+  })
+
+  test('merge keeps the first spelling, group and colour, and the lowest position', () => {
+    const merged = mergeStatuses([
+      [{ name: 'Review', type: 'custom', order: 5, color: '#111111' }],
+      [{ name: 'review', type: 'done', order: 2, color: '#222222' }, { name: 'Ship', type: 'done', order: 3, color: null }]
+    ])
+    assert.deepEqual(merged, [
+      { name: 'Review', type: 'custom', order: 2, color: '#111111' },
+      { name: 'Ship', type: 'done', order: 3, color: null }
+    ])
+  })
+
+  test('a column pages through the status filter; a closed column stays empty while closed is hidden', async () => {
+    const w = await connected()
+    await w.tasks.statuses('L1')
+    w.tracker.queryPages = [{ tasks: [taskDetail({ id: 'r1', status: { name: 'review', type: 'custom', color: null } })], lastPage: false }]
+    const review = await w.source.list({ query: '', filters: { assignee: 'anyone' }, ...BOARD, column: 'Review' })
+    assert.deepEqual(review.items.map((i) => i.id), ['r1'])
+    // The task's own spelling is aligned to the asked column's value.
+    assert.equal(review.items[0]?.status?.value, 'Review')
+    assert.equal(review.nextCursor, 's:0:1')
+    assert.equal(review.filters, undefined)
+    assert.equal(review.board, undefined)
+    assert.deepEqual(w.tracker.calls.filter((c) => c.method === 'queryTasks').at(-1)?.args[1], {
+      listIds: ['L1'], includeClosed: false, statuses: ['review'], page: 0
+    })
+    const queries = w.tracker.count('queryTasks')
+    const closed = await w.source.list({ query: '', filters: { assignee: 'anyone' }, ...BOARD, column: 'complete' })
+    assert.deepEqual(closed.items, [])
+    assert.equal(w.tracker.count('queryTasks'), queries)
+    // Mine and open: from the panel cache, no request.
+    w.tracker.tasks = [taskDetail(), taskDetail({ id: 'x2', status: { name: 'in progress', type: 'custom', color: null } })]
+    const mine = await w.source.list({ query: '', filters: {}, ...BOARD, column: 'in progress' })
+    assert.deepEqual(mine.items.map((i) => i.id), ['x2'])
+    assert.equal(w.tracker.count('queryTasks'), queries)
+  })
+
+  test('a drop is the Status action: a status of another List is refused before any write', async () => {
+    const w = await connected()
+    await rejects(w.source.action({ itemId: '86c1x2a', actionId: 'set-status', value: 'QA' }), 'invalid_input')
+    assert.equal(w.tracker.count('setStatus'), 0)
+    const moved = await w.source.action({ itemId: '86c1x2a', actionId: 'set-status', value: 'in progress', style: { hostDrawsColor: true } })
+    assert.deepEqual(w.tracker.calls.find((c) => c.method === 'setStatus')?.args, ['86c1x2a', 'in progress'])
+    assert.equal(moved.detail?.item.id, '86c1x2a')
+    assert.ok(STATUSES.length > 0)
+  })
+
+  test('host features: "board" switches the board on; a column only counts for a board host', () => {
+    assert.equal(parseBoard({ features: ['status-color', 'board'] }), true)
+    assert.equal(parseBoard({ features: 'board' }), false)
+    assert.deepEqual(parseListParams({ query: '', filters: {}, column: 'review', features: ['board'] }), {
+      query: '', filters: {}, style: { hostDrawsColor: false }, board: true, column: 'review'
+    })
+    assert.deepEqual(parseListParams({ query: '', filters: {}, column: 'review' }), { query: '', filters: {}, style: { hostDrawsColor: false } })
+  })
+})
+
 describe('task source items and commands', () => {
   test('tones from status group and name', () => {
     assert.equal(statusTone({ name: 'to do', type: 'open' }), 'open')
@@ -321,9 +444,9 @@ describe('task source items and commands', () => {
   test('status colour: always sent as checked hex; circle in the label unless the host draws colour', () => {
     const task = taskDetail({ status: { name: 'in progress', type: 'custom', color: '#4194F6' } })
     const dots = toItem(task)
-    assert.deepEqual(dots.status, { label: '🔵 in progress', tone: 'active', color: '#4194f6' })
+    assert.deepEqual(dots.status, { label: '🔵 in progress', tone: 'active', color: '#4194f6', value: 'in progress' })
     const plain = toItem(task, { hostDrawsColor: true })
-    assert.deepEqual(plain.status, { label: 'in progress', tone: 'active', color: '#4194f6' })
+    assert.deepEqual(plain.status, { label: 'in progress', tone: 'active', color: '#4194f6', value: 'in progress' })
     // A bad or missing ClickUp colour never reaches the host: the pinned fallback goes instead.
     const bad = toItem(taskDetail({ status: { name: 'odd', type: 'custom', color: 'url(javascript:x)' } }))
     assert.match(bad.status?.color ?? '', /^#[0-9a-f]{6}$/)

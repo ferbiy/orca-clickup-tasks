@@ -50,6 +50,8 @@ export interface TaskSummary {
   createdAt: number | null
   /** Milliseconds, or null when not set (0 counts as not set). Drives the "No time estimate" filter. */
   timeEstimateMs: number | null
+  /** Who the task is assigned to; missing in caches written before 0.5.0. Shown on Tasks page cards. */
+  assignees?: Person[]
 }
 
 export interface ChecklistItem {

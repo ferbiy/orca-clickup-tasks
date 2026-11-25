@@ -345,7 +345,8 @@ export function mapTaskSummary(dto: TaskDto): TaskSummary {
     parentId: dto.parent,
     updatedAt: numOf(dto.date_updated) ?? numOf(dto.date_created) ?? 0,
     createdAt: numOf(dto.date_created),
-    timeEstimateMs: msOrNull(dto.time_estimate)
+    timeEstimateMs: msOrNull(dto.time_estimate),
+    assignees: dto.assignees.map(mapPerson)
   }
 }
 

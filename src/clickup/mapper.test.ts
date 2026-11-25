@@ -47,7 +47,8 @@ describe('mapper', () => {
       parentId: null,
       updatedAt: 1794000000000,
       createdAt: 1790000000000,
-      timeEstimateMs: null
+      timeEstimateMs: null,
+      assignees: []
     })
   })
 
@@ -58,6 +59,8 @@ describe('mapper', () => {
     const missing = mapTaskSummary(parseTask({ ...TASK_FULL, date_created: undefined, time_estimate: undefined }))
     assert.equal(missing.createdAt, null)
     assert.equal(missing.timeEstimateMs, null)
+    // Assignees ride along on summaries too (Tasks page board cards).
+    assert.deepEqual(mapTaskSummary(parseTask(TASK_RICH)).assignees?.map((a) => a.name), ['Ada Lovelace', 'grace hopper'])
     assert.equal(mapTaskSummary(parseTask({ ...TASK_FULL, time_estimate: '0' })).timeEstimateMs, null)
   })
 

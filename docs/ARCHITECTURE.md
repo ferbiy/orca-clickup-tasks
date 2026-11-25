@@ -55,6 +55,18 @@ The sections below are the upstream design of `feature/start-task`. This fork ch
   checkbox, the label keeps only the name) and run card moves as coloured Badges with the checked
   hex from `statusColor`; on stock Orca, and in group titles, Selects and the Start checkbox (plain
   strings in the kit), the circle stays.
+- **Board (0.5.0)**: the Overhedge build's plugin task board (`overhedge/task-board`, OVERHEDGE.md
+  "Plugin task board") sends `features: ['board']`; `register.ts` `parseBoard` reads it and only then
+  takes a `column` argument. `TaskSourceService.list` adds `board: { columns, moveActionId:
+  'set-status' }`: one List's statuses (`boardOf`, sorted by `sortStatuses`: ClickUp group, then
+  order, then name), or, for all chosen Lists, `mergeStatuses` over each List's statuses (from the
+  hour cache; uncached Lists with tasks on screen are fetched, `BOARD_STATUS_FETCHES` = 5 per answer)
+  plus the statuses seen on tasks, merged by lower-cased name (first spelling, group and colour; lowest
+  order). Items carry `status.value` (the status name, aligned to the column's spelling by
+  `alignToBoard`) and `owner` from the new `TaskSummary.assignees` (mapped from the task answers
+  already fetched; older caches lack it). `column` pages one status through the same paths as the
+  Status filter (cache or one ClickUp page); a closed column with closed hidden answers empty
+  without a request. A drop is `action({ actionId: 'set-status' })`, the detail's checked status path.
 - **Settings**: `prefs.settings` stores only fields the person set plus `version: 2`; `moveOnDone`
   defaults to false and a pre-version `true` (the old default, saved by 0.2.0's whole-object writes)
   reads as unset.

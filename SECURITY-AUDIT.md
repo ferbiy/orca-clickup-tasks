@@ -129,3 +129,18 @@ and the Tasks page source now that the Overhedge build draws `color`.
 | How Orca uses it | The Overhedge build checks `#rgb`/`#rrggbb` again in its schema (Badge prop and task source answer) and once more right before drawing, and puts it only into React `style` objects through Linear's pill helpers (`color-mix(...)`), never class names, CSS text or markup. An invalid value is dropped with a warning. | None |
 | Older Orca | The panel sends `color` only when `ui.has('Badge', 'color')` is true; otherwise the neutral Badge with a circle, as in 0.4.1. The Tasks page labels keep the circle unless the host sends `features: ["status-color"]`. | None |
 | Capabilities, network, storage | No change. | None |
+
+## Re-check for 0.5.0: Tasks page board (2026-11-26)
+
+Scope: `src/worker/task-source/items.ts` (`boardOf`, `mergeStatuses`, `alignToBoard`, owners on
+items), `task-source-service.ts` (board columns, `column` paging), `register.ts` (`parseBoard`,
+`column`), `TaskSummary.assignees` in `model.ts` and `mapper.ts`.
+
+| Area | Finding | Risk |
+|---|---|---|
+| New input | `column` (a status name from the Overhedge page) is read only when the host sends `features: ["board"]`, cut to 256 characters, and used only to pick a status: matched case-insensitively against the List's known statuses, else passed as a ClickUp `statuses[]` filter value (URL-encoded by the existing query builder), as the Status filter already does. It never selects a List: Lists still come only from the chosen scope. | None |
+| Moves | A drop runs the existing `set-status` action: the task is read through `TaskService.get` (scope-checked) and the value must be a status of that task's own List; anything else is refused before any write. No new write path. | None |
+| Output | Column labels are clamped status names, colours go through `statusColor` (strict hex or the palette), values are status names (1..256). Assignee names go into `owner` (clamped to 256) as plain text; the Overhedge renderer validates every field again with its zod schema and shows them as text. | None |
+| Requests | The board is the list answer. Extra: statuses of up to 5 uncached Lists with tasks on screen per answer (then cached for an hour), and one page (or none, from the cache) per column Load more, on click only. All through the same 80-a-minute budget. | Low |
+| Capabilities, network, storage | No new capability or destination. `TaskSummary` in the existing My tasks cache now also holds assignee ids, names and initials (already shown in the panel's detail). | None |
+

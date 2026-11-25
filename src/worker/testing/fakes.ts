@@ -90,7 +90,9 @@ export class FakeTracker implements TaskTracker {
     return this.queryPages[options.page] ?? { tasks: [], lastPage: true }
   }
   async getTask(taskId: string) { this.record('getTask', [taskId]); return this.detail }
-  async listStatuses(listId: string) { this.record('listStatuses', [listId]); return this.statuses }
+  /** Per-List statuses where a test needs Lists to differ; else `statuses`. */
+  statusesByList: Record<string, StatusOption[]> = {}
+  async listStatuses(listId: string) { this.record('listStatuses', [listId]); return this.statusesByList[listId] ?? this.statuses }
   async setStatus(taskId: string, status: string) { this.record('setStatus', [taskId, status]) }
   async updateTask(taskId: string, patch: TaskPatch) { this.record('updateTask', [taskId, patch]) }
   async addTag(taskId: string, name: string) { this.record('addTag', [taskId, name]) }

@@ -3,6 +3,11 @@
 // "Mine, not closed" views are served from the panel's My tasks cache; other views ask ClickUp one
 // page at a time, and a page is reused for PAGE_REUSE_MS so typing a search or the page's own
 // two-minute refresh costs no extra requests.
+// Board (host feature `board`): the same answer carries the status columns. One List: its statuses.
+// All chosen Lists: the statuses of every List, merged by name like ClickUp's own board over several
+// Lists; a List's statuses come from the hour-long cache, and only Lists with tasks on screen are
+// fetched, at most BOARD_STATUS_FETCHES per answer. `column` pages one column through the same
+// status filter as the Status filter, and a drop runs `set-status`, the detail's checked Status path.
 import { PluginError } from '../../shared/errors'
 import type { StatusOption, TaskSummary } from '../../shared/model'
 import { LIST_IDS_PER_REQUEST } from '../../tracker/tracker'
@@ -15,8 +20,13 @@ import type { TaskService } from '../services/task-service'
 import type { LinkStore } from '../stores/link-store'
 import type { PrefsStore } from '../stores/prefs-store'
 import {
+  alignToBoard,
+  boardOf,
   clamp,
   DOT_LABELS,
+  mergeStatuses,
+  SET_STATUS_ACTION,
+  sortStatuses,
   detailActions,
   statusOption,
   sendAction,
@@ -25,6 +35,7 @@ import {
   toDetailItem,
   toItem,
   taskRef,
+  type SourceBoard,
   type SourceDetail,
   type SourceFilter,
   type SourceItem,
@@ -39,6 +50,8 @@ export const PAGE_REUSE_MS = 60_000
 const SEARCH_MIN_ITEMS = 25
 /** ClickUp pages read for one answer at most. */
 const PAGES_PER_ANSWER = 5
+/** Lists whose (uncached) statuses one board answer may fetch; each is then cached for an hour. */
+export const BOARD_STATUS_FETCHES = 5
 
 export interface ListParams {
   query: string
@@ -46,6 +59,10 @@ export interface ListParams {
   cursor?: string
   /** How the asking host draws statuses (from its `features`); plain-dot labels when absent. */
   style?: StatusStyle
+  /** The host draws a board (feature `board`): the answer carries its columns. */
+  board?: boolean
+  /** Board paging: only the tasks in this status (a column `value`). */
+  column?: string
 }
 
 export interface ListAnswer {
@@ -53,6 +70,7 @@ export interface ListAnswer {
   nextCursor?: string
   filters?: SourceFilter[]
   notice?: string
+  board?: SourceBoard
 }
 
 export interface TaskSourceDeps {
@@ -90,6 +108,7 @@ export class TaskSourceService {
     }
     const lists = await this.deps.scope.lists()
     const view = readView(params.filters, lists)
+    if (params.column !== undefined) return this.column(view, params, lists, userId)
     const statuses = await this.statusOptions(view.list, lists)
     const chosen = view.status === 'any' ? null : statuses.find((s) => s.name.toLowerCase() === view.status.toLowerCase()) ?? null
     const fromCache = view.assignee === 'me' && view.closed === 'hide' && (chosen === null || chosen.type !== 'closed')
@@ -99,12 +118,66 @@ export class TaskSourceService {
       : await this.fromClickUp(view, chosen, query, params.cursor, lists, userId)
     const seen = new Map(statuses.map((s) => [s.name.toLowerCase(), s]))
     for (const s of answer.seen) if (!seen.has(s.name.toLowerCase())) seen.set(s.name.toLowerCase(), { ...s, order: 999 })
+    const board = params.board ? await this.board(view, statuses, answer.tasks, answer.seen, lists) : null
+    const items = answer.tasks.map((t) => toItem(t, params.style ?? DOT_LABELS))
     return {
-      items: answer.tasks.map((t) => toItem(t, params.style ?? DOT_LABELS)),
+      items: board ? items.map((i) => alignToBoard(i, board)) : items,
       ...(answer.nextCursor ? { nextCursor: answer.nextCursor } : {}),
       filters: buildFilters(lists, [...seen.values()], params.style ?? DOT_LABELS),
-      ...(answer.notice ? { notice: answer.notice } : {})
+      ...(answer.notice ? { notice: answer.notice } : {}),
+      ...(board ? { board } : {})
     }
+  }
+
+  /**
+   * More of one board column: the view's tasks in that status, paged on their own. A closed status
+   * while closed tasks are hidden stays empty (the column is there to drop tasks on).
+   */
+  private async column(view: View, params: ListParams, lists: { id: string }[], userId: string): Promise<ListAnswer> {
+    const wanted = (params.column ?? '').toLowerCase()
+    const statuses = await this.statusOptions(view.list, lists)
+    const chosen = statuses.find((s) => s.name.toLowerCase() === wanted) ?? { name: params.column ?? '', type: 'custom' as const, order: 0, color: null }
+    if (chosen.name === '' || (chosen.type === 'closed' && view.closed === 'hide')) return { items: [] }
+    const columnView = { ...view, status: chosen.name }
+    const query = params.query.trim().toLowerCase()
+    const fromCache = view.assignee === 'me' && view.closed === 'hide'
+    const answer = fromCache
+      ? await this.fromCache(columnView, chosen, query, params.cursor)
+      : await this.fromClickUp(columnView, chosen, query, params.cursor, lists, userId)
+    // Spelled like the asked column, so a task of a List that writes "In Progress" joins "in progress".
+    const asked = params.column ?? ''
+    return {
+      items: answer.tasks.map((t) => {
+        const item = toItem(t, params.style ?? DOT_LABELS)
+        return item.status?.value?.toLowerCase() === wanted ? { ...item, status: { ...item.status, value: asked } } : item
+      }),
+      ...(answer.nextCursor ? { nextCursor: answer.nextCursor } : {})
+    }
+  }
+
+  /** The board's columns for the view: the List's statuses, or every chosen List's merged by name. */
+  private async board(
+    view: View,
+    statuses: StatusOption[],
+    tasks: TaskSummary[],
+    seen: StatusOption[],
+    lists: { id: string }[]
+  ): Promise<SourceBoard | null> {
+    if (view.list !== 'all') return boardOf(statuses)
+    const shown = new Set(tasks.map((t) => t.list.id))
+    const perList: StatusOption[][] = []
+    let fetches = 0
+    for (const { id } of lists) {
+      let listStatuses = await this.deps.tasks.cachedStatuses(id)
+      if (!listStatuses && shown.has(id) && fetches < BOARD_STATUS_FETCHES) {
+        fetches++
+        listStatuses = await this.deps.tasks.statuses(id)
+      }
+      if (listStatuses) perList.push(listStatuses)
+    }
+    // Statuses of tasks whose List was not read stay on the board, after the known ones.
+    perList.push(seen.map((s) => ({ ...s, order: 999 })))
+    return boardOf(mergeStatuses(perList))
   }
 
   async get(itemId: string, style: StatusStyle = DOT_LABELS): Promise<SourceDetail> {
@@ -125,7 +198,7 @@ export class TaskSourceService {
   async action(params: { itemId: string; actionId: string; value?: string; style?: StatusStyle }): Promise<{ message?: string; detail?: SourceDetail }> {
     const itemId = requireItemId(params.itemId)
     const style = params.style ?? DOT_LABELS
-    if (params.actionId === 'set-status') {
+    if (params.actionId === SET_STATUS_ACTION) {
       const task = await this.deps.tasks.get(itemId, { reuse: true })
       const wanted = (params.value ?? '').toLowerCase()
       const status = (await this.deps.tasks.statuses(task.list.id)).find((s) => s.name.toLowerCase() === wanted)
@@ -283,15 +356,12 @@ function readView(filters: Record<string, string>, lists: { id: string }[]): Vie
   }
 }
 
-const TYPE_ORDER: Record<StatusOption['type'], number> = { open: 0, unstarted: 1, custom: 2, done: 3, closed: 4 }
-
 function buildFilters(lists: { id: string; name: string; folder: string | null }[], statuses: StatusOption[], style: StatusStyle): SourceFilter[] {
   const listOptions = lists.slice(0, 99).map((l) => ({
     value: l.id,
     label: (l.folder ? `${l.folder} › ${l.name}` : l.name).slice(0, 128) || l.id
   }))
-  const statusOptions = [...statuses]
-    .sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || a.order - b.order || a.name.localeCompare(b.name))
+  const statusOptions = sortStatuses(statuses)
     .filter((s) => s.name !== '' && s.name.length <= 256)
     .slice(0, 99)
     .map((s) => statusOption(s, style))

@@ -4,7 +4,7 @@
 // page's arguments does nothing (no ClickUp request) or says what the command is for.
 import type { OrcaWorkerApi } from 'orca/worker'
 import { messageOf, PluginError } from '../../shared/errors'
-import { STATUS_COLOR_FEATURE, TASK_SOURCE_ID, type StatusStyle } from './items'
+import { BOARD_FEATURE, STATUS_COLOR_FEATURE, TASK_SOURCE_ID, type StatusStyle } from './items'
 import type { ListParams, TaskSourceService } from './task-source-service'
 
 const PALETTE_HINT = "This command feeds the ClickUp tab of Orca's Tasks page (Overhedge build); open that page instead."
@@ -27,6 +27,12 @@ export function parseStyle(args: unknown): StatusStyle {
   return { hostDrawsColor: Array.isArray(features) && features.includes(STATUS_COLOR_FEATURE) }
 }
 
+/** True when the asking host draws a Kanban board (an exact `board` entry in `features`). */
+export function parseBoard(args: unknown): boolean {
+  const features = field(args, 'features')
+  return Array.isArray(features) && features.includes(BOARD_FEATURE)
+}
+
 /** The Tasks page always sends `query` and `filters`; anything else is a palette run. */
 export function parseListParams(args: unknown): ListParams | null {
   const query = text(args, 'query')
@@ -35,7 +41,17 @@ export function parseListParams(args: unknown): ListParams | null {
   const filters: Record<string, string> = {}
   for (const [key, value] of Object.entries(raw)) if (typeof value === 'string') filters[key] = value
   const cursor = text(args, 'cursor')
-  return { query: query.slice(0, 256), filters, ...(cursor ? { cursor } : {}), style: parseStyle(args) }
+  const board = parseBoard(args)
+  // A column is a status name; only a board host pages by it.
+  const column = board ? text(args, 'column')?.slice(0, 256) : undefined
+  return {
+    query: query.slice(0, 256),
+    filters,
+    ...(cursor ? { cursor } : {}),
+    style: parseStyle(args),
+    ...(board ? { board } : {}),
+    ...(column ? { column } : {})
+  }
 }
 
 /** What the person reads in the Tasks page for a failure: the plugin's own message, with the wait for a 429. */
