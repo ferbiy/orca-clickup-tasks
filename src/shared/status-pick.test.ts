@@ -18,6 +18,15 @@ describe('autoStartStatus (by type)', () => {
   })
 })
 
+describe('the unstarted group (seen on real Lists, 2026-11-25)', () => {
+  test('start skips unstarted statuses; done never picks them', () => {
+    const list = [s('to do', 'open', 0), s('backlog', 'unstarted', 1), s('ready', 'unstarted', 2), s('working', 'custom', 3), s('in review', 'custom', 4), s('shipped', 'done', 5), s('closed', 'closed', 6)]
+    assert.equal(autoStartStatus(list), 'working')
+    assert.equal(autoDoneStatus(list), 'in review')
+    assert.equal(autoStartStatus([s('to do', 'open', 0), s('backlog', 'unstarted', 1), s('closed', 'closed', 2)]), null)
+  })
+})
+
 describe('autoDoneStatus (by type)', () => {
   test('a review-like custom status after the start status', () => {
     assert.equal(autoDoneStatus([s('to do', 'open', 0), s('in progress', 'custom', 1), s('code review', 'custom', 2), s('complete', 'closed', 3)]), 'code review')

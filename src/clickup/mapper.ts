@@ -133,7 +133,8 @@ export function parseTeams(json: unknown): Team[] {
 }
 
 function statusType(value: string | null): StatusOption['type'] {
-  return value === 'open' || value === 'done' || value === 'closed' ? value : 'custom'
+  // 'unstarted' is ClickUp's "not started" group: kept apart so it is never taken for in progress.
+  return value === 'open' || value === 'unstarted' || value === 'done' || value === 'closed' ? value : 'custom'
 }
 
 function toStatusDto(raw: unknown): StatusDto | null {

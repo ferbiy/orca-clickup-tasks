@@ -1,5 +1,27 @@
 # ClickUp Tasks for Orca: architecture
 
+## Overhedge fork changes (read first)
+
+The sections below are the upstream design of `feature/start-task`. This fork changes:
+
+- **Auth**: `worker/services/oauth-service.ts` (OAuth app in secrets, state, loopback
+  `worker/loopback.ts`, paste fallback, `clickup/oauth.ts` exchange); `AuthService` stores the
+  method (`auth.method`) and sends OAuth tokens as `Bearer`. Personal token stays as a fallback.
+- **Scope**: `worker/services/scope-service.ts` resolves the chosen Spaces/Folders/Lists
+  (`prefs.scope:<teamId>`) to List ids; `TaskService` limits `listMyTasks` (`list_ids[]`) and refuses
+  tasks and Lists outside (`out_of_scope`). Browse shows chosen Lists only.
+- **Statuses**: `shared/status-pick.ts` resolves start/done per List from status types
+  (`open`/`unstarted`/`custom`/`done`/`closed`) and overrides (`prefs.statusMap`);
+  `worker/services/transition-service.ts` applies them on start and on the first finish and records
+  a `StatusChange` on the link (`onStart`, `onDone`).
+- **Start**: any visible git project on any host (`hostId` passed to `workspace.create`); comments on
+  start/finish; the task title moved inside the prompt fence.
+- **Removed**: `terminal:read`, `terminal:send`, `workspace:write`; retry by `agent.launch`, prompt
+  typing (`prompt-delivery.ts`), terminal diagnosis (`run-diagnosis.ts`), the `CU-CTX` self-report and
+  the "auto" task-context mode. `RunWatcher.check` uses `agents.list` only; 'failed' is gone
+  ('stalled' with `no_agent` / `agent_idle`).
+- **Rate limit**: `createRateGate` in `clickup/http.ts` (80 requests/minute, blocks after a 429).
+
 Orca 1.4.266, host API 1.10, `engines.orca >=1.4.259`.
 
 ## 1. Goal and scope

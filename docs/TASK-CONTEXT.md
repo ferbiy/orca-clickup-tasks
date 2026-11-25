@@ -1,6 +1,9 @@
 # Task context: how the agent learns the task
 
-Status: implemented on the Start branch; not in a release yet.
+Status in the Overhedge fork: modes are `link-and-snapshot` (default), `snapshot-only` and
+`link-only`. The `auto` mode, the `CU-CTX` self-report (§3) and every terminal read are removed;
+outside the fence the prompt carries only the task id and link (the title moved inside). The rest of
+this file is the upstream design and is kept for history.
 
 ## 1. Problem
 

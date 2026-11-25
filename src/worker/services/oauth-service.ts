@@ -54,6 +54,8 @@ function sameSecret(a: string, b: string): boolean {
 
 export class OAuthService {
   private pending: Pending | null = null
+  /** A spent sign-in's listener, still open for a moment so its answer page is sent. */
+  private closing: LoopbackHandle | null = null
 
   constructor(private readonly deps: OAuthServiceDeps) {
     deps.auth.oauthState = () => this.appState()
@@ -152,7 +154,14 @@ export class OAuthService {
     return this.complete(params)
   }
 
+  private async release(server: LoopbackHandle): Promise<void> {
+    if (this.closing === server) this.closing = null
+    await server.close().catch(() => undefined)
+  }
+
   async cancel(): Promise<void> {
+    // A new sign-in needs the port: close a spent listener now instead of in a moment.
+    if (this.closing) await this.release(this.closing)
     const p = this.pending
     this.pending = null
     if (!p) return
@@ -186,7 +195,11 @@ export class OAuthService {
     // Spend it now (one use). The listener closes a moment later, after this answer's page is sent.
     this.pending = null
     p.cancelTimer()
-    if (p.server) this.deps.schedule(() => void p.server?.close().catch(() => undefined), 2_000)
+    if (p.server) {
+      const server = p.server
+      this.closing = server
+      this.deps.schedule(() => void this.release(server), 2_000)
+    }
     if (params.error) throw new PluginError('invalid_input', 'ClickUp did not grant access. Start the sign-in again to retry.')
     const code = params.code
     if (!code || code.length > 2048) throw new PluginError('invalid_input', 'ClickUp sent no authorization code.')

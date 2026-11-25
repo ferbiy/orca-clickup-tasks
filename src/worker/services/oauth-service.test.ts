@@ -165,6 +165,16 @@ describe('OAuthService', () => {
     assert.equal(w.server.port, 0)
   })
 
+  test('a new sign-in right after a finished one closes the spent listener first', async () => {
+    const w = world()
+    await w.oauth.saveApp({ clientId: CLIENT_ID, clientSecret: SECRET })
+    await w.oauth.begin()
+    await w.server.onCallback!({ params: { code: 'C', state: 'STATE'.repeat(13) } })
+    assert.equal(w.server.closed, 0)
+    await w.oauth.begin()
+    assert.equal(w.server.closed, 1)
+  })
+
   test('cancel and forgetApp stop the listener; sign out keeps the app', async () => {
     const w = world()
     await w.oauth.saveApp({ clientId: CLIENT_ID, clientSecret: SECRET })

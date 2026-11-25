@@ -12,9 +12,10 @@ const IN_PROGRESS_NAME = /progress|doing|develop|working|wip/i
 const REVIEW_NAME = /review|qa|test|verif|check/i
 
 /**
- * The automatic "work started" status: among 'custom' statuses (the middle of the workflow), by
- * order, the first whose name reads like in-progress, else the first 'custom' one. Null when the
- * List has no 'custom' status (only open → done/closed): then nothing is changed.
+ * The automatic "work started" status: among 'custom' statuses (ClickUp's active group; never the
+ * 'unstarted' group such as backlog or ready), by order, the first whose name reads like
+ * in-progress, else the first 'custom' one. Null when the List has no 'custom' status: then
+ * nothing is changed.
  */
 export function autoStartStatus(statuses: readonly StatusOption[]): string | null {
   const custom = byOrder(statuses).filter((s) => s.type === 'custom')

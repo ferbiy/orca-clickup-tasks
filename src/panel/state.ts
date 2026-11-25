@@ -317,7 +317,7 @@ export interface TaskGroup {
   tasks: TaskSummary[]
 }
 
-const RANK: Record<TaskSummary['status']['type'], number> = { custom: 0, open: 1, done: 2, closed: 3 }
+const RANK: Record<TaskSummary['status']['type'], number> = { custom: 0, unstarted: 1, open: 2, done: 3, closed: 4 }
 
 /** Tasks passing the filter (search, List, presets, priority, due), grouped by status in workflow order (custom → open → done/closed); each group sorted by `f.sort`. */
 export function groupTasks(tasks: readonly TaskSummary[], f: TaskFilter, now: number): TaskGroup[] {

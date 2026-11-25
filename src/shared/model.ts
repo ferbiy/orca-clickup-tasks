@@ -7,8 +7,11 @@ export type Priority = 'urgent' | 'high' | 'normal' | 'low'
 /** A status of a ClickUp List. `type` drives "which status means in progress / done". */
 export interface StatusOption {
   name: string
-  /** ClickUp status type: 'open' (first), 'custom' (middle), 'done', 'closed'. */
-  type: 'open' | 'custom' | 'done' | 'closed'
+  /**
+   * ClickUp status group: 'open' (first), 'unstarted' (not started yet, e.g. backlog or ready),
+   * 'custom' (active, in progress), 'done' (done, not closed), 'closed'.
+   */
+  type: 'open' | 'unstarted' | 'custom' | 'done' | 'closed'
   /** Position in the List's workflow, lowest first. */
   order: number
 }

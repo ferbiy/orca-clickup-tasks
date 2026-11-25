@@ -109,6 +109,18 @@ describe('mapper', () => {
     assert.deepEqual(statuses.map((s) => s.type), ['open', 'custom', 'done', 'closed'])
   })
 
+  test('the unstarted group stays its own type; unknown types read as custom', () => {
+    const statuses = parseStatuses({
+      statuses: [
+        { status: 'to do', type: 'open', orderindex: 0 },
+        { status: 'backlog', type: 'unstarted', orderindex: 1 },
+        { status: 'working', type: 'custom', orderindex: 2 },
+        { status: 'odd', type: 'future_group', orderindex: 3 }
+      ]
+    })
+    assert.deepEqual(statuses.map((s) => s.type), ['open', 'unstarted', 'custom', 'custom'])
+  })
+
   test('user, teams and error body', () => {
     assert.deepEqual(parseUser(USER_RESPONSE), { id: '183', name: 'Ada Lovelace' })
     assert.deepEqual(parseTeams(TEAMS_RESPONSE), [
