@@ -118,3 +118,14 @@ Scope: `src/shared/status-color.ts`, the `color` fields in `mapper.ts`, `cache-s
 | Where it goes | The panel never uses the hex in output: it picks one of nine fixed circle characters from it. The Tasks page gets the checked hex as a JSON field (`color`); the current Overhedge renderer drops it, and the proposed renderer change would use it only in React `style` objects (as Linear's pill does), never in class names, CSS text or HTML. | None |
 | Capabilities, network, storage | No change: no new capability, no new request (colours come in the task and List answers already fetched), no new storage key (the fallback colour is computed from the name, not stored). | None |
 
+## Re-check for 0.4.2: host-drawn status colours (2026-11-25)
+
+Scope: `src/panel/views/StatusBadge.tsx`, its use in `Header.tsx`, `Subtasks.tsx` and `RunCard.tsx`,
+and the Tasks page source now that the Overhedge build draws `color`.
+
+| Area | Finding | Risk |
+|---|---|---|
+| What reaches Orca | Only `statusColor(...)`: ClickUp's colour after the strict hex check, else a palette constant. Never the raw ClickUp value. | None |
+| How Orca uses it | The Overhedge build checks `#rgb`/`#rrggbb` again in its schema (Badge prop and task source answer) and once more right before drawing, and puts it only into React `style` objects through Linear's pill helpers (`color-mix(...)`), never class names, CSS text or markup. An invalid value is dropped with a warning. | None |
+| Older Orca | The panel sends `color` only when `ui.has('Badge', 'color')` is true; otherwise the neutral Badge with a circle, as in 0.4.1. The Tasks page labels keep the circle unless the host sends `features: ["status-color"]`. | None |
+| Capabilities, network, storage | No change. | None |

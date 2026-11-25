@@ -7,20 +7,24 @@ import * as s from '../../state'
 import type { SubtaskRef, TaskDetail } from '../../../shared/model'
 import { SectionTitle } from './shared'
 import { statusLabel } from '../../../shared/status-color'
+import { hostDrawsBadgeColor, StatusBadge } from '../StatusBadge'
 
 function SubtaskRow({ task, sub }: { task: TaskDetail; sub: SubtaskRef }) {
   const busy = read(s.saving).includes('subtasks')
   const locked = edit.isLocked(task.id, 'subtasks')
   const done = sub.status.type === 'done' || sub.status.type === 'closed'
   const target = edit.subtaskToggleTarget(sub)
+  // The status in its colour beside the checkbox where Orca draws Badge colours, else in the label.
+  const colored = hostDrawsBadgeColor()
   return (
     <Row gap="xs" align="center">
       <Checkbox
-        label={`${sub.name} · ${statusLabel(sub.status)}`}
+        label={colored ? sub.name : `${sub.name} · ${statusLabel(sub.status)}`}
         checked={done}
         disabled={locked || busy || target === null}
         onChange={() => edit.toggleSubtask(task.id, sub.id)}
       />
+      {colored ? <StatusBadge status={sub.status} /> : null}
       {target === null ? (
         <Text size="xs" muted>
           No status to switch to

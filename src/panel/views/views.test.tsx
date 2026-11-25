@@ -1,4 +1,5 @@
 // View tests: mount the real panel entry over a mock host that answers Result envelopes.
+import { ui } from 'orca'
 import { assert, describe, mockHost, mount, test } from 'orca/testing'
 import * as panel from '../../panel'
 import { checkChildren, checkComments, checkSpaces, checkTasks } from '../check-fixtures'
@@ -244,7 +245,12 @@ describe('panel views', () => {
     const opened = JSON.stringify(view.tree())
     assert.ok(opened.includes('Start in worktree'))
     // Status badge, status menu and the start checkbox show the status colours; values stay plain names.
-    assert.ok(opened.includes('⚪ to do'), 'header badge')
+    if (ui.has('Badge', 'color')) {
+      // This Orca draws Badge colours: the plain name in a Badge of the status's checked colour.
+      assert.ok(opened.includes('{"type":"Badge","props":{"color":"#d3d3d3"},"children":["to do"]}'), opened)
+    } else {
+      assert.ok(opened.includes('⚪ to do'), 'header badge')
+    }
     assert.ok(opened.includes('{"value":"in progress","label":"🔵 in progress"}'), 'status menu')
     assert.ok(opened.includes('Move task to “🔵 in progress” on start'), 'start checkbox')
     await view.select({ label: 'Agent' } as never, 'codex')
@@ -311,7 +317,11 @@ describe('panel views', () => {
     await view.press({ type: 'ListItem', label: 'Migrate billing webhooks to v2' } as never)
     const text = JSON.stringify(view.tree())
     // The move shows the status's colour (the List's, as this link predates recorded colours).
-    assert.ok(text.includes('On start: 🔵 Moved to “in progress”'), text)
+    if (ui.has('Badge', 'color')) {
+      assert.ok(text.includes('"On start: ",{"type":"Badge","props":{"color":"#4194f6"},"children":["in progress"]}," Moved to “in progress”'), text)
+    } else {
+      assert.ok(text.includes('On start: 🔵 Moved to “in progress”'), text)
+    }
     assert.ok(text.includes('When done: Left as “blocked”'))
   })
 

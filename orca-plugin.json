@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "clickup-tasks",
   "name": "ClickUp Tasks (Overhedge)",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Your ClickUp tasks from the Lists you choose, in Orca's sidebar and (Overhedge build) its Tasks page: sign in with OAuth, start a task in its own worktree with your coding agent, or send a short prepared message with the task link into an Orca chat you pick (Overhedge build), and move its status by the List's own workflow.",
   "author": {
     "name": "Overhedge (fork of gthjnk/orca-clickup-tasks)",

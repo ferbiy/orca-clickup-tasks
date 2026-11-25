@@ -4,7 +4,7 @@ import * as edit from '../../edit'
 import * as s from '../../state'
 import * as api from '../../api'
 import { dueLabel, priorityLabel, priorityTone } from '../../../shared/display'
-import { statusLabel } from '../../../shared/status-color'
+import { StatusBadge } from '../StatusBadge'
 import type { TaskDetail } from '../../../shared/model'
 
 export function Header({ task }: { task: TaskDetail }) {
@@ -57,8 +57,7 @@ export function Header({ task }: { task: TaskDetail }) {
         </Row>
       )}
       <Row wrap gap="xs" align="center">
-        {/* Neutral badge: the circle carries the status colour (the kit has no colour prop). */}
-        <Badge>{statusLabel(task.status)}</Badge>
+        <StatusBadge status={task.status} />
         {priority ? <Badge tone={priorityTone(task.priority)}>{priority}</Badge> : null}
         {due ? <Badge tone={due.tone}>{due.label}</Badge> : null}
         <Badge>{task.customId ?? task.id}</Badge>

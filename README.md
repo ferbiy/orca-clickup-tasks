@@ -46,10 +46,12 @@ Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks
   Start, on Orca's own Tasks page. See [Orca's Tasks page](#orcas-tasks-page-overhedge-build).
 - **Status colours** (0.4.1): every status shows its ClickUp colour: group titles, the status badge,
   the status menus, subtasks, the Start form, the run card, and on the Tasks page the status pill,
-  Status menu and Status filter. Orca's sidebar kit has no colour property, so the panel shows the
-  colour as the nearest coloured circle before the name (🔵 in progress, 🟣 review, ⚪ to do). A
-  status without a usable colour gets one from a fixed palette, picked by a hash of its name, so it
-  is the same everywhere and never changes. See [Status colours](#status-colours).
+  Status menu and Status filter. On the Overhedge Orca build (0.4.2+ of the plugin) the status badge,
+  subtasks, the run card and the whole Tasks page draw the real colour (a tinted badge with a dot);
+  elsewhere, and in group titles and menus, the panel shows the nearest coloured circle before the
+  name (🔵 in progress, 🟣 review, ⚪ to do). A status without a usable colour gets one from a fixed
+  palette, picked by a hash of its name, so it is the same everywhere and never changes. See
+  [Status colours](#status-colours).
 
 ## Install (Orca desktop app)
 
@@ -233,14 +235,16 @@ Anything else, or no colour, gives the status a colour from a fixed palette of t
 hash of the status name: stable across sessions and machines, so nothing needs storing. Every
 palette colour keeps 3:1 contrast on Orca's light and dark backgrounds.
 
-- **Sidebar**: the colour is shown as the nearest of 🔴🟠🟡🟢🔵🟣🟤⚫⚪ before the status name (the
-  component kit only knows five tones and has no colour prop). Colour emoji look the same in light
-  and dark themes, and the name stays as text, so nothing gets harder to read.
+- **Sidebar**: where Orca draws Badge colours (`ui.has('Badge', 'color')`, the Overhedge build), the
+  task's status badge, each subtask's status and the run card's status moves are Badges in the
+  status's own colour with the plain name. Group titles, status menus and the Start checkbox are
+  plain text in Orca's kit (no colour there), so they keep the nearest of 🔴🟠🟡🟢🔵🟣🟤⚫⚪ before
+  the name, as does everything on stock Orca, which has no colour prop. Colour emoji look the same
+  in light and dark themes, and the name stays as text, so nothing gets harder to read.
 - **Tasks page**: each item, Status menu option and Status filter option carries `color` (the checked
-  hex). Today's Overhedge Tasks page ignores it (the schema drops fields it does not know) and shows
-  labels as text, so the plugin puts the circle into the label there too. A host that sends
-  `features: ["status-color"]` with its commands gets plain labels and draws `color` itself
-  (proposed fork change, see docs/ARCHITECTURE.md).
+  hex). The Overhedge build sends `features: ["status-color"]` with its commands and draws `color`
+  itself (a tinted status pill and coloured dots), so the plugin sends plain labels. A build without
+  that feature gets the circle in the label instead.
 
 ## Limitations
 

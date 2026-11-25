@@ -43,22 +43,18 @@ The sections below are the upstream design of `feature/start-task`. This fork ch
   the `color` key and treats entries without it (0.4.0 caches) as absent, so real colours load at
   once; it also now accepts the `unstarted` type (Lists with such statuses were never cached). The
   panel draws circles (group titles, header badge in the neutral tone, status Selects, subtasks,
-  Start checkbox, run card). The Tasks page source (`worker/task-source/items.ts`) sends
+  Start checkbox, run card); 0.4.2 swaps some of them for coloured Badges, below. The Tasks page source (`worker/task-source/items.ts`) sends
   `status.color` on items and `color` on status options, and writes the circle into labels unless
   the command's `features` argument contains `status-color` (`register.ts` `parseStyle`). `clamp` now
   counts UTF-16 units, as the renderer's zod limits do.
-- **Proposed fork change for Tasks page colours** (not made; `overhedge/patch-273`): in
-  `src/shared/plugins/tasks/plugin-task-source-schema.ts` add
-  `color: z.string().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/).optional().catch(undefined)` to
-  the item `status` object and to `optionSchema` (an invalid colour is dropped, not a failed answer);
-  in `PluginTaskStatusPill.tsx` use `getLinearStatePillStyle(color)` plus a
-  `getLinearStateMarkerStyle(color)` dot when `color` is set (tone classes otherwise), as Linear's
-  state pill does (tinted background, text mixed toward `--foreground`, so it reads in both
-  themes); in `PluginTaskDetailPane.tsx` (`PluginTaskActionControl` menu items) and
-  `PluginTaskSourcePage.tsx` (filter `SelectItem`s) draw a `size-2` dot with that colour before an
-  option's label; in `plugin-task-source-client.ts` add `features: ['status-color']` to every
-  command's params; tests in `plugin-task-source-schema.test.ts` (valid, invalid dropped) and the
-  demo source. The colour only ever reaches React `style` objects, never class names or markup.
+- **Host colours (0.4.2)**: the Overhedge build (`overhedge/patch-273`, OVERHEDGE.md "Plugin status
+  colours") draws a task source's `status.color` and option `color` (Linear's tinted pill and dots)
+  and sends `features: ['status-color']` with every command, so `items.ts` sends plain labels there;
+  it also takes `color` on components `Badge` (`ui.has('Badge', 'color')`). `panel/views/StatusBadge.tsx`
+  checks that once per render and draws the header status, subtask statuses (a Badge beside the
+  checkbox, the label keeps only the name) and run card moves as coloured Badges with the checked
+  hex from `statusColor`; on stock Orca, and in group titles, Selects and the Start checkbox (plain
+  strings in the kit), the circle stays.
 - **Settings**: `prefs.settings` stores only fields the person set plus `version: 2`; `moveOnDone`
   defaults to false and a pre-version `true` (the old default, saved by 0.2.0's whole-object writes)
   reads as unset.
