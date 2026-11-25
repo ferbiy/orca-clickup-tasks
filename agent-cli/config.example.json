@@ -1,0 +1,13 @@
+{
+  "team_id": "9012345678",
+  "allow": {
+    "spaces": [],
+    "folders": ["901200000001"],
+    "lists": ["901200000002"]
+  },
+  "status_overrides": {
+    "901200000002": { "review": "ready for qa", "done": "deployed" }
+  },
+  "comments": 5,
+  "max_rate_limit_wait_seconds": 65
+}
