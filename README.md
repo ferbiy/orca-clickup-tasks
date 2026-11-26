@@ -22,6 +22,11 @@ Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks
 > [Overhedge build of Orca](https://github.com/ferbiy/orca-overhedge) (plugin task sources and
 > plugin chat send). On stock Orca use 0.3.0, which has the sidebar panel only.
 
+**Install:** first the Overhedge Orca desktop app ([macOS](https://github.com/ferbiy/orca-overhedge/blob/overhedge/main/docs/overhedge/install/macos.md),
+[Linux](https://github.com/ferbiy/orca-overhedge/blob/overhedge/main/docs/overhedge/install/linux-desktop.md)), then this plugin pinned to a release:
+[step-by-step guide](https://github.com/ferbiy/orca-overhedge/blob/overhedge/main/docs/overhedge/install/clickup-plugin.md) ([українською](https://github.com/ferbiy/orca-overhedge/blob/overhedge/main/docs/overhedge/install/clickup-plugin.uk.md)); the short
+version is in [Install](#install-orca-desktop-app) below.
+
 ## What it does
 
 - **Sign in with ClickUp (OAuth)**, using your own ClickUp OAuth app. A personal API token still works
@@ -55,7 +60,8 @@ Fork of [gthjnk/orca-clickup-tasks](https://github.com/gthjnk/orca-clickup-tasks
 
 ## Install (Orca desktop app)
 
-Install only a pinned commit of this fork, never the community catalog listing:
+Install only a pinned release tag or commit of this fork, never the community catalog listing
+(step by step, with troubleshooting: [install guide](https://github.com/ferbiy/orca-overhedge/blob/overhedge/main/docs/overhedge/install/clickup-plugin.md)):
 
 ```sh
 orca plugin install https://github.com/ferbiy/orca-clickup-tasks@<commit-sha> --json
