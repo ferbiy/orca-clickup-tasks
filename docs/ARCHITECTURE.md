@@ -16,6 +16,14 @@ The sections below are the upstream design of `feature/start-task`. This fork ch
   a `StatusChange` on the link (`onStart`, `onDone`).
 - **Start**: any visible git project on any host (`hostId` passed to `workspace.create`); comments on
   start/finish; the task title moved inside the prompt fence.
+- **Paired servers (0.5.1)**: Orca's `project.list` reads this computer's runtime only, so the
+  Start menu showed "(this computer)" projects alone. The Overhedge build (OVERHEDGE.md "Plugin
+  projects on paired servers", from `overhedge/main` after 1.4.278+overhedge.28) also lists each
+  paired Orca server's projects with the server's name (`hostLabel`, shown in the menu), creates a
+  workspace for one of them on that server, and answers `agents.list({ workspaceId, hostId })`
+  there. `RunWatcher.check` passes a link's `runtime:` host, so a server run is followed by those
+  checks (no `agent.status.changed` events come from a server). Stock Orca and older builds: local
+  projects only, as before; the extra fields are read untyped (`orca-adapters.ts`).
 - **Removed**: `terminal:read`, `terminal:send`, `workspace:write`; retry by `agent.launch`, prompt
   typing (`prompt-delivery.ts`), terminal diagnosis (`run-diagnosis.ts`), the `CU-CTX` self-report and
   the "auto" task-context mode. `RunWatcher.check` uses `agents.list` only; 'failed' is gone

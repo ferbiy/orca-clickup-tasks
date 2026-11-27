@@ -155,7 +155,7 @@ export class RunWatcher {
 
     let agents
     try {
-      agents = await gateway.listAgents(workspaceId)
+      agents = await gateway.listAgents(workspaceId, link.hostId)
     } catch (error) {
       // The workspace is gone or on a host Orca cannot reach now; workspace.removed handles the first.
       gateway.log(`run check: agents.list failed for ${workspaceId}: ${String(error)}`)

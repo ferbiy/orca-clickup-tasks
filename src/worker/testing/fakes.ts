@@ -122,12 +122,13 @@ export class FakeTracker implements TaskTracker {
 
 export class FakeGateway implements OrcaGateway {
   projects: OrcaProject[] = [
-    { id: 'p-web', name: 'web-app', kind: 'git', hostId: 'local', hidden: false },
-    { id: 'p-api', name: 'billing-service', kind: 'git', hostId: 'local', hidden: false },
-    { id: 'p-notes', name: 'notes', kind: 'folder', hostId: 'local', hidden: false },
-    { id: 'p-ssh', name: 'remote', kind: 'git', hostId: 'ssh:box', hidden: false },
-    { id: 'p-srv', name: 'server-app', kind: 'git', hostId: 'runtime:env-1', hidden: false },
-    { id: 'p-hidden', name: 'old', kind: 'git', hostId: 'local', hidden: true }
+    { id: 'p-web', name: 'web-app', kind: 'git', hostId: 'local', hidden: false, hostLabel: null },
+    { id: 'p-api', name: 'billing-service', kind: 'git', hostId: 'local', hidden: false, hostLabel: null },
+    { id: 'p-notes', name: 'notes', kind: 'folder', hostId: 'local', hidden: false, hostLabel: null },
+    { id: 'p-ssh', name: 'remote', kind: 'git', hostId: 'ssh:box', hidden: false, hostLabel: null },
+    { id: 'p-srv', name: 'server-app', kind: 'git', hostId: 'runtime:env-1', hidden: false, hostLabel: null },
+    { id: 'p-ide', name: 'overhedge', kind: 'git', hostId: 'runtime:env-2', hidden: false, hostLabel: 'orca-ide' },
+    { id: 'p-hidden', name: 'old', kind: 'git', hostId: 'local', hidden: true, hostLabel: null }
   ]
   workspaces: OrcaWorkspace[] = []
   created: Parameters<OrcaGateway['createWorkspace']>[0][] = []
@@ -147,7 +148,10 @@ export class FakeGateway implements OrcaGateway {
   /** agents.list answers, by workspace id; a missing key answers []. */
   agents: Record<string, OrcaAgent[]> = {}
 
-  async listAgents(workspaceId: string) { return this.agents[workspaceId] ?? [] }
+  /** The host each agents.list call named, in order. */
+  agentHosts: (string | undefined)[] = []
+
+  async listAgents(workspaceId: string, hostId?: string) { this.agentHosts.push(hostId); return this.agents[workspaceId] ?? [] }
   async notify(params: { title: string; body?: string }) { this.notifications.push(params) }
   log(message: string) { this.logs.push(message) }
 }

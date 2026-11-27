@@ -24,6 +24,8 @@ export interface OrcaProject {
   kind: 'git' | 'folder'
   hostId: string
   hidden: boolean
+  /** A paired Orca server's name (Overhedge build); null when the host does not give one. */
+  hostLabel: string | null
 }
 
 export interface OrcaWorkspace {
@@ -59,8 +61,11 @@ export interface OrcaGateway {
     agent: string
     prompt: string
   }): Promise<{ workspaceId: string; terminalId?: string }>
-  /** The agents Orca sees in one workspace. Rejects when no workspace has that id. */
-  listAgents(workspaceId: string): Promise<OrcaAgent[]>
+  /**
+   * The agents Orca sees in one workspace. Rejects when no workspace has that id. `hostId`: the
+   * workspace's host; a paired server's (`runtime:…`) is asked there (Overhedge build).
+   */
+  listAgents(workspaceId: string, hostId?: string): Promise<OrcaAgent[]>
   notify(params: { title: string; body?: string }): Promise<void>
   log(message: string): void
 }

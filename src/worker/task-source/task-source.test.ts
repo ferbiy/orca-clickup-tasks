@@ -240,7 +240,8 @@ describe('TaskSourceService.get and actions', () => {
     assert.equal(startAction?.label, 'Start Claude')
     assert.equal(startAction?.primary, true)
     assert.deepEqual(startAction?.options?.map((o) => o.label), [
-      'server-app (Orca server), last used', 'billing-service (this computer)', 'remote (SSH)', 'web-app (this computer)'
+      'server-app (Orca server), last used', 'billing-service (this computer)', 'overhedge (orca-ide)', 'remote (SSH)',
+      'web-app (this computer)'
     ])
     assert.equal(status?.id, 'set-status')
     assert.equal(status?.value, 'to do')

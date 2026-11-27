@@ -161,7 +161,7 @@ export class StartService {
     const projects = await this.deps.gateway.listProjects()
     return projects
       .filter((p) => p.kind === 'git' && !p.hidden)
-      .map((p) => ({ id: p.id, name: p.name, hostId: p.hostId, hostLabel: hostLabel(p.hostId) }))
+      .map((p) => ({ id: p.id, name: p.name, hostId: p.hostId, hostLabel: p.hostLabel ?? hostLabel(p.hostId) }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.hostLabel.localeCompare(b.hostLabel))
   }
 

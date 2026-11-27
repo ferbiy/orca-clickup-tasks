@@ -38,14 +38,24 @@ export function panelPoster(orca: OrcaWorkerApi): PanelPoster {
 export function orcaGateway(orca: OrcaWorkerApi): OrcaGateway {
   return {
     async listProjects(): Promise<OrcaProject[]> {
-      const { projects } = await orca.host.call('project.list', {})
-      return projects.map((p) => ({
-        id: p.id,
-        name: p.name,
-        kind: p.kind,
-        hostId: p.hostId ?? 'local',
-        hidden: p.hidden ?? false
-      }))
+      const answer = await orca.host.call('project.list', {})
+      // The Overhedge build also lists paired Orca servers' projects, with the server's name, and
+      // names a server it could not read; neither field is in stock Orca's typings.
+      const unreachable = (answer as { unreachableHostIds?: unknown }).unreachableHostIds
+      if (Array.isArray(unreachable) && unreachable.length > 0) {
+        orca.log(`project.list: no answer from ${unreachable.join(', ')}`)
+      }
+      return answer.projects.map((p) => {
+        const label = (p as { hostLabel?: unknown }).hostLabel
+        return {
+          id: p.id,
+          name: p.name,
+          kind: p.kind,
+          hostId: p.hostId ?? 'local',
+          hidden: p.hidden ?? false,
+          hostLabel: typeof label === 'string' && label !== '' ? label : null
+        }
+      })
     },
     async listWorkspaces(): Promise<OrcaWorkspace[]> {
       const { workspaces } = await orca.host.call('workspace.list', {})
@@ -62,8 +72,10 @@ export function orcaGateway(orca: OrcaWorkerApi): OrcaGateway {
         ? { workspaceId: result.workspaceId }
         : { workspaceId: result.workspaceId, terminalId: result.terminalId }
     },
-    async listAgents(workspaceId) {
-      const { agents } = await orca.host.call('agents.list', { workspaceId })
+    async listAgents(workspaceId, hostId) {
+      // A paired server's workspace is asked there; `hostId` is an Overhedge-build parameter.
+      const params = hostId?.startsWith('runtime:') ? { workspaceId, hostId } : { workspaceId }
+      const { agents } = await orca.host.call('agents.list', params as { workspaceId: string })
       return agents.map((a) => ({ terminalId: a.terminalId, agent: a.agent, state: a.state }))
     },
     async notify(params) {

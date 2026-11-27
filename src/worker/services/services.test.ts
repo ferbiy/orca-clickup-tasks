@@ -179,7 +179,7 @@ describe('StartService', () => {
     await connected(w)
     await w.prefs.setProjectForList('L1', 'p-api')
     const options = await w.start.options('86c1x2a')
-    assert.deepEqual(options.projects.map((p) => `${p.id}@${p.hostLabel}`), ['p-api@this computer', 'p-ssh@SSH', 'p-srv@Orca server', 'p-web@this computer'])
+    assert.deepEqual(options.projects.map((p) => `${p.id}@${p.hostLabel}`), ['p-api@this computer', 'p-ide@orca-ide', 'p-ssh@SSH', 'p-srv@Orca server', 'p-web@this computer'])
     assert.equal(options.suggestedProjectId, 'p-api')
     assert.match(options.workspaceName, /^CU-86c1x2a-migrate-billing/)
     assert.equal(options.inProgressStatus, 'in progress')

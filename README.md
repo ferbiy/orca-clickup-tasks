@@ -37,7 +37,10 @@ version is in [Install](#install-orca-desktop-app) below.
   search, filters and the full task view and editing from the upstream plugin.
 - **Start in worktree**: Orca creates a worktree and branch named after the task (the Custom Task ID
   when the Workspace uses them, e.g. `OVH-142-fix-login`, else `CU-<id>-<title>`) on this computer or
-  on a paired Orca server, and starts your agent there with the task as its first prompt.
+  on a paired Orca server, and starts your agent there with the task as its first prompt. A paired
+  server's projects are listed under the server's name (e.g. `overhedge_v2 (orca-ide)`) with plugin
+  0.5.1+ on an Overhedge Orca build that has "Plugin projects on paired servers"; older Orca
+  builds list only this computer's projects, each as "(this computer)".
 - **Status follows the List**: on start the task moves to the List's in-progress status. Moving it to
   the List's review status when the agent first finishes is a setting, **off by default** since 0.3.0
   (agents set their own review status); turn it on in Settings if you want it. Defaults come from

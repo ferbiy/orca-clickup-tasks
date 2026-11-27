@@ -186,6 +186,13 @@ describe('RunWatcher.check (agents.list only)', () => {
     assert.equal(after?.terminalId, 'term_9')
   })
 
+  test('a run on a paired Orca server is checked on that server', async () => {
+    const { watcher, gateway } = await setup([link({ hostId: 'runtime:env-2' })])
+    gateway.agents[WS] = [{ terminalId: null, agent: 'claude', state: 'working' }]
+    assert.equal((await watcher.check(WS))?.run.state, 'working')
+    assert.deepEqual(gateway.agentHosts, ['runtime:env-2'])
+  })
+
   test('checkAll skips done runs; a done run is left alone', async () => {
     const { watcher, links } = await setup([link({ run: { state: 'done', since: 1, sawWorking: true } })])
     await watcher.checkAll()

@@ -295,7 +295,7 @@ export interface ProjectOption {
   name: string
   /** `local`, `ssh:…` or `runtime:…` (a paired Orca server). Passed back to workspace.create. */
   hostId: string
-  /** Where the worktree is created, for the Select label ("this computer", "server", "SSH"). */
+  /** Where the worktree is created, for the Select label ("this computer", a paired server's name, "SSH"). */
   hostLabel: string
 }
 
